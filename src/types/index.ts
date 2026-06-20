@@ -4,12 +4,22 @@ export type LetterType = 'intent_notice' | 'claim_report' | 'reminder';
 
 export type ToneLevel = number;
 
+export interface CostBreakdown {
+  personnelCost: number | null;
+  equipmentCost: number | null;
+  managementCost: number | null;
+  materialCost: number | null;
+  otherCost: number | null;
+  otherCostDesc: string;
+}
+
 export interface ClaimFormData {
   claimType: ClaimType | null;
   contractClause: string;
   eventDescription: string;
   confirmedDays: number | null;
   incurredCost: number | null;
+  costBreakdown: CostBreakdown;
   evidences: string[];
   customEvidence: string;
   projectName: string;
@@ -20,10 +30,21 @@ export interface ClaimFormData {
   date: string;
 }
 
+export interface MissingGroup {
+  group: 'fact' | 'contract' | 'evidence';
+  groupTitle: string;
+  items: MissingItem[];
+}
+
+export interface MissingItem {
+  text: string;
+  targetSection: string;
+}
+
 export interface GeneratedResult {
   letterType: LetterType;
   content: string;
-  missingEvidences: string[];
+  missingGroups: MissingGroup[];
   toneLevel: ToneLevel;
 }
 

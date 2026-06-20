@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   FileText,
@@ -11,9 +11,10 @@ import {
   Send,
   Check,
   AlertCircle,
+  Calculator,
 } from 'lucide-react';
 import { useClaimStore } from '@/store/useClaimStore';
-import { CLAIM_TYPES, COMMON_EVIDENCES, getClaimTypeConfig } from '@/data/claimTypes';
+import { COMMON_EVIDENCES, getClaimTypeConfig } from '@/data/claimTypes';
 
 const iconMap: Record<string, typeof Building2> = {
   Building2,
@@ -23,19 +24,36 @@ const iconMap: Record<string, typeof Building2> = {
 
 export default function FormPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const scrollTo = searchParams.get('scrollTo');
+
   const formData = useClaimStore((s) => s.formData);
   const setFormData = useClaimStore((s) => s.setFormData);
+  const setCostBreakdown = useClaimStore((s) => s.setCostBreakdown);
   const toggleEvidence = useClaimStore((s) => s.toggleEvidence);
   const generateLetter = useClaimStore((s) => s.generateLetter);
 
   const claimConfig = formData.claimType ? getClaimTypeConfig(formData.claimType) : null;
   const ClaimIcon = formData.claimType ? iconMap[claimConfig?.icon || 'Building2'] : FileText;
 
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   useEffect(() => {
     if (!formData.claimType) {
       navigate('/');
     }
   }, [formData.claimType, navigate]);
+
+  useEffect(() => {
+    if (scrollTo && sectionRefs.current[scrollTo]) {
+      const timer = setTimeout(() => {
+        sectionRefs.current[scrollTo]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [scrollTo]);
+
+  const cb = formData.costBreakdown;
 
   const canSubmit =
     formData.projectName.trim() &&
@@ -54,8 +72,6 @@ export default function FormPage() {
   };
 
   if (!claimConfig) return null;
-
-  const allEvidences = [...claimConfig.requiredEvidences, ...COMMON_EVIDENCES];
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -97,7 +113,7 @@ export default function FormPage() {
         </div>
 
         <div className="space-y-6">
-          <div className="card">
+          <div ref={(el) => { sectionRefs.current['basic-info'] = el; }} className="card">
             <h3 className="text-lg font-semibold text-slate-900 mb-5 flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary-600" />
               项目与函件基本信息
@@ -168,7 +184,7 @@ export default function FormPage() {
             </div>
           </div>
 
-          <div className="card">
+          <div ref={(el) => { sectionRefs.current['claim-facts'] = el; }} className="card">
             <h3 className="text-lg font-semibold text-slate-900 mb-5 flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-primary-600" />
               索赔事实与依据
@@ -179,35 +195,22 @@ export default function FormPage() {
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="例如：第 12.2 条、第 23.3 条"
+                  placeholder="例如：12.2 或 第 12.2 条（支持多种格式）"
                   value={formData.contractClause}
                   onChange={(e) => setFormData({ contractClause: e.target.value })}
                 />
-                <p className="mt-1.5 text-xs text-slate-500">请引用施工合同中关于停窝工、索赔的具体条款</p>
+                <p className="mt-1.5 text-xs text-slate-500">支持输入"12.2"、"第12.2条"等多种格式，正文将自动规范为"第12.2条"</p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="form-label">已确认停窝工天数<span className="form-required">*</span></label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="input-field"
-                    placeholder="天"
-                    value={formData.confirmedDays ?? ''}
-                    onChange={(e) => setFormData({ confirmedDays: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </div>
-                <div>
-                  <label className="form-label">已发生费用金额(元)<span className="form-required">*</span></label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="input-field"
-                    placeholder="0.00"
-                    value={formData.incurredCost ?? ''}
-                    onChange={(e) => setFormData({ incurredCost: e.target.value ? Number(e.target.value) : null })}
-                  />
-                </div>
+              <div>
+                <label className="form-label">已确认停窝工天数<span className="form-required">*</span></label>
+                <input
+                  type="number"
+                  min="0"
+                  className="input-field"
+                  placeholder="天"
+                  value={formData.confirmedDays ?? ''}
+                  onChange={(e) => setFormData({ confirmedDays: e.target.value ? Number(e.target.value) : null })}
+                />
               </div>
             </div>
             <div>
@@ -222,13 +225,112 @@ export default function FormPage() {
             </div>
           </div>
 
-          <div className="card">
+          <div ref={(el) => { sectionRefs.current['cost-detail'] = el; }} className="card">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
+              <Calculator className="w-5 h-5 text-primary-600" />
+              费用明细录入
+            </h3>
+            <p className="text-sm text-slate-600 mb-5">
+              请分项填写停窝工期间已发生的各项费用，系统将自动汇总为索赔总金额并写入函件正文。
+            </p>
+            <div className="grid md:grid-cols-2 gap-5 mb-4">
+              <div>
+                <label className="form-label">人员窝工费（元）</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                  placeholder="含工人工资、社保等"
+                  value={cb.personnelCost ?? ''}
+                  onChange={(e) => setCostBreakdown({ personnelCost: e.target.value ? Number(e.target.value) : null })}
+                />
+                <p className="mt-1 text-xs text-slate-500">停窝工期间现场人员工资、社保、住宿等费用</p>
+              </div>
+              <div>
+                <label className="form-label">机械闲置费（元）</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                  placeholder="含租赁费、折旧等"
+                  value={cb.equipmentCost ?? ''}
+                  onChange={(e) => setCostBreakdown({ equipmentCost: e.target.value ? Number(e.target.value) : null })}
+                />
+                <p className="mt-1 text-xs text-slate-500">塔吊、挖掘机等机械设备的租赁费或折旧费</p>
+              </div>
+              <div>
+                <label className="form-label">现场管理费（元）</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                  placeholder="含管理人员工资、办公费等"
+                  value={cb.managementCost ?? ''}
+                  onChange={(e) => setCostBreakdown({ managementCost: e.target.value ? Number(e.target.value) : null })}
+                />
+                <p className="mt-1 text-xs text-slate-500">停工期间项目管理人员的工资、办公费、临时设施维护费</p>
+              </div>
+              <div>
+                <label className="form-label">材料保管费（元）</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                  placeholder="含仓储、损耗等"
+                  value={cb.materialCost ?? ''}
+                  onChange={(e) => setCostBreakdown({ materialCost: e.target.value ? Number(e.target.value) : null })}
+                />
+                <p className="mt-1 text-xs text-slate-500">已进场材料的保管、仓储、防护损耗等费用</p>
+              </div>
+              <div>
+                <label className="form-label">其他费用（元）</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                  placeholder="如有其他费用项"
+                  value={cb.otherCost ?? ''}
+                  onChange={(e) => setCostBreakdown({ otherCost: e.target.value ? Number(e.target.value) : null })}
+                />
+                <p className="mt-1 text-xs text-slate-500">如资金占用成本、保险费、检测费等</p>
+              </div>
+              {cb.otherCost !== null && cb.otherCost > 0 && (
+                <div>
+                  <label className="form-label">其他费用说明</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="例如：资金占用成本"
+                    value={cb.otherCostDesc}
+                    onChange={(e) => setCostBreakdown({ otherCostDesc: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-primary-50 rounded-lg border border-primary-200">
+              <div className="flex items-center gap-2 text-sm text-primary-700 font-medium">
+                <Calculator className="w-4 h-4" />
+                费用合计（自动汇总）
+              </div>
+              <div className="text-lg font-bold text-primary-800">
+                {formData.incurredCost ? `¥ ${formData.incurredCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '¥ 0.00'}
+              </div>
+            </div>
+          </div>
+
+          <div ref={(el) => { sectionRefs.current['evidence'] = el; }} className="card">
             <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-primary-600" />
               现有证据材料
             </h3>
             <p className="text-sm text-slate-600 mb-5">
-              请勾选您目前已收集到的证据材料。系统将自动识别并醒目标注缺失的关键证据。
+              请勾选您目前已收集到的证据材料。未勾选的必备证据将在预览时醒目标注提醒。
             </p>
 
             <div className="mb-4">

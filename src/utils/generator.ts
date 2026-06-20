@@ -1,15 +1,15 @@
-import type { ClaimFormData, LetterType } from '@/types';
+import type { ClaimFormData, LetterType, MissingGroup } from '@/types';
 import { getClaimTypeConfig } from '@/data/claimTypes';
 import { getTemplate, getLetterTitle, pickToneText } from '@/data/letterTemplates';
 
 function numToChinese(num: number): string {
-  if (num === 0) return '零';
+  if (num === 0) return '零元整';
   const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
   const units = ['', '拾', '佰', '仟'];
   const bigUnits = ['', '万', '亿'];
 
-  const intPart = Math.floor(num);
-  const decPart = Math.round((num - intPart) * 100);
+  const intPart = Math.floor(Math.abs(num));
+  const decPart = Math.round((Math.abs(num) - intPart) * 100);
 
   let intStr = '';
   const intStrArr = intPart.toString().split('').reverse();
@@ -47,8 +47,14 @@ function numToChinese(num: number): string {
     const jiao = Math.floor(decPart / 10);
     const fen = decPart % 10;
     result += '元';
-    if (jiao > 0) result += digits[jiao] + '角';
-    if (fen > 0) result += digits[fen] + '分';
+    if (jiao > 0) {
+      result += digits[jiao] + '角';
+    } else if (fen > 0) {
+      result += '零';
+    }
+    if (fen > 0) {
+      result += digits[fen] + '分';
+    }
   } else {
     result += '元整';
   }
@@ -67,6 +73,34 @@ function formatDate(dateStr: string): string {
   return `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日`;
 }
 
+function formatContractClause(input: string): string {
+  const raw = input.trim();
+  if (!raw) return '[合同条款编号]';
+
+  const clauses = raw.split(/[、,，;；]/).map((s) => s.trim()).filter(Boolean);
+
+  const normalized = clauses.map((clause) => {
+    let c = clause;
+    const hasPrefix = /^第\s*/.test(c);
+    const hasSuffix = /\s*条$/.test(c);
+
+    if (hasPrefix && hasSuffix) {
+      c = c.replace(/^第\s*/, '第').replace(/\s*条$/, '条');
+    } else if (hasPrefix && !hasSuffix) {
+      c = c.replace(/^第\s*/, '第') + '条';
+    } else if (!hasPrefix && hasSuffix) {
+      c = '第' + c;
+    } else {
+      c = '第' + c + '条';
+    }
+
+    c = c.replace(/^第\s+/, '第').replace(/\s+条$/, '条');
+    return c;
+  });
+
+  return normalized.join('、');
+}
+
 function buildEvidenceList(formData: ClaimFormData): string {
   const allEvidences = [...formData.evidences];
   if (formData.customEvidence.trim()) {
@@ -74,6 +108,31 @@ function buildEvidenceList(formData: ClaimFormData): string {
   }
   if (allEvidences.length === 0) return '';
   return '\n' + allEvidences.map((e, i) => `    ${i + 1}、${e}`).join('\n');
+}
+
+function buildCostDetailText(formData: ClaimFormData): string {
+  const cb = formData.costBreakdown;
+  const items: { label: string; value: number }[] = [];
+
+  if (cb.personnelCost && cb.personnelCost > 0) {
+    items.push({ label: '人员窝工费', value: cb.personnelCost });
+  }
+  if (cb.equipmentCost && cb.equipmentCost > 0) {
+    items.push({ label: '机械闲置费', value: cb.equipmentCost });
+  }
+  if (cb.managementCost && cb.managementCost > 0) {
+    items.push({ label: '现场管理费', value: cb.managementCost });
+  }
+  if (cb.materialCost && cb.materialCost > 0) {
+    items.push({ label: '材料保管费', value: cb.materialCost });
+  }
+  if (cb.otherCost && cb.otherCost > 0) {
+    const label = cb.otherCostDesc?.trim() || '其他费用';
+    items.push({ label, value: cb.otherCost });
+  }
+
+  if (items.length === 0) return '';
+  return '\n    费用明细如下：\n' + items.map((it) => `    ${it.label}：${formatNumber(it.value)}元`).join('\n');
 }
 
 export function generateLetter(
@@ -93,6 +152,9 @@ export function generateLetter(
   const costValue = formData.incurredCost ?? 0;
   const daysValue = formData.confirmedDays ?? 0;
 
+  const costDetailText = buildCostDetailText(formData);
+  const claimSuffix = letterType === 'claim_report' && costDetailText ? costDetailText : '';
+
   const replacements: Record<string, string> = {
     projectName: formData.projectName || '[项目名称]',
     contractNumber: formData.contractNumber || '[合同编号]',
@@ -103,12 +165,13 @@ export function generateLetter(
     days: daysValue > 0 ? String(daysValue) : '[X]',
     cost: costValue > 0 ? formatNumber(costValue) : '[X]',
     costChinese: costValue > 0 ? numToChinese(costValue) : '[人民币大写]',
-    contractClause: formData.contractClause || '[合同条款编号]',
+    contractClause: formatContractClause(formData.contractClause),
     eventDescription: formData.eventDescription ? `\n\n事实经过补充说明：${formData.eventDescription}` : '',
     persons: '[X]',
     machines: '[X]',
     evidenceList: buildEvidenceList(formData),
     eventKeyword: config?.eventKeyword || '索赔事件',
+    costDetail: claimSuffix,
   };
 
   function applyTemplate(text: string): string {
@@ -126,12 +189,14 @@ export function generateLetter(
   const hasEvidences = formData.evidences.length > 0 || formData.customEvidence.trim();
   const evidenceSection = hasEvidences ? evidence : '';
 
+  const claimText = claim + replacements.costDetail;
+
   return (
     `${title}\n\n` +
     `${greeting}\n\n` +
     `一、事实陈述\n\n${fact}\n\n` +
     `二、合同依据\n\n${basis}\n\n` +
-    `三、索赔主张\n\n${claim}\n\n` +
+    `三、索赔主张\n\n${claimText}\n\n` +
     (evidenceSection ? `四、证据材料\n\n${evidenceSection}\n\n` : '') +
     `${closing}\n\n` +
     `${formData.senderDept || '[发函部门]'}\n` +
@@ -140,12 +205,38 @@ export function generateLetter(
   );
 }
 
-export function detectMissingEvidences(formData: ClaimFormData): string[] {
+export function detectMissingGroups(formData: ClaimFormData): MissingGroup[] {
   if (!formData.claimType) return [];
   const config = getClaimTypeConfig(formData.claimType);
   if (!config) return [];
 
-  const missing: string[] = [];
+  const factItems: { text: string; targetSection: string }[] = [];
+  const contractItems: { text: string; targetSection: string }[] = [];
+  const evidenceItems: { text: string; targetSection: string }[] = [];
+
+  if (!formData.projectName.trim()) {
+    factItems.push({ text: '项目名称未填写', targetSection: 'basic-info' });
+  }
+  if (!formData.eventDescription.trim()) {
+    factItems.push({ text: '事件经过未描述（建议补充时间、地点、涉及人员、具体影响）', targetSection: 'claim-facts' });
+  }
+  if (formData.confirmedDays === null || formData.confirmedDays <= 0) {
+    factItems.push({ text: '已确认停窝工天数未填写（天数为索赔金额计算的重要依据）', targetSection: 'claim-facts' });
+  }
+  if (formData.incurredCost === null || formData.incurredCost <= 0) {
+    factItems.push({ text: '已发生费用金额未填写（建议填写费用明细或总金额）', targetSection: 'cost-detail' });
+  }
+
+  if (!formData.contractClause.trim()) {
+    contractItems.push({ text: '合同条款编号未填写（需引用施工合同中停窝工、索赔的具体条款）', targetSection: 'claim-facts' });
+  }
+  if (!formData.contractNumber.trim()) {
+    contractItems.push({ text: '合同编号未填写', targetSection: 'basic-info' });
+  }
+  if (!formData.recipient.trim()) {
+    contractItems.push({ text: '收函单位未填写', targetSection: 'basic-info' });
+  }
+
   const userEvidences = new Set(formData.evidences.map((e) => e.trim()));
   if (formData.customEvidence.trim()) {
     userEvidences.add(formData.customEvidence.trim());
@@ -162,27 +253,20 @@ export function detectMissingEvidences(formData: ClaimFormData): string[] {
       }
     }
     if (!found) {
-      missing.push(required);
+      evidenceItems.push({ text: `缺${required}`, targetSection: 'evidence' });
     }
   }
 
-  const criticalMissing: string[] = [];
-
-  if (!formData.contractClause.trim()) {
-    criticalMissing.push('合同条款编号（未填写引用的具体合同条款）');
+  const groups: MissingGroup[] = [];
+  if (factItems.length > 0) {
+    groups.push({ group: 'fact', groupTitle: '事实信息缺失', items: factItems });
   }
-  if (!formData.eventDescription.trim()) {
-    criticalMissing.push('事件经过详细描述（建议补充时间、地点、涉及人员、具体影响）');
+  if (contractItems.length > 0) {
+    groups.push({ group: 'contract', groupTitle: '合同依据缺失', items: contractItems });
   }
-  if (formData.confirmedDays === null || formData.confirmedDays <= 0) {
-    criticalMissing.push('已确认停窝工天数（天数为索赔金额计算的重要依据）');
-  }
-  if (formData.incurredCost === null || formData.incurredCost <= 0) {
-    criticalMissing.push('已发生费用金额（建议附详细费用计算明细）');
-  }
-  if (!formData.projectName.trim()) {
-    criticalMissing.push('项目名称');
+  if (evidenceItems.length > 0) {
+    groups.push({ group: 'evidence', groupTitle: '证据材料缺失', items: evidenceItems });
   }
 
-  return [...criticalMissing, ...missing];
+  return groups;
 }

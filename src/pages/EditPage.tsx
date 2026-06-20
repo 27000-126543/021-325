@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -10,10 +10,50 @@ import {
   AlertTriangle,
   Info,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { useClaimStore } from '@/store/useClaimStore';
 import { LETTER_TYPES } from '@/data/claimTypes';
 import type { LetterType } from '@/types';
+
+interface ConfirmModalProps {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmModal({ open, title, message, confirmLabel, cancelLabel, onConfirm, onCancel }: ConfirmModalProps) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 animate-in">
+        <button onClick={onCancel} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+          <X className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-warn-100 flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5 text-warn-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        </div>
+        <p className="text-sm text-slate-600 leading-relaxed mb-6">{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel} className="btn-secondary px-5 py-2.5">
+            {cancelLabel}
+          </button>
+          <button onClick={onConfirm} className="bg-warn-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-warn-700 transition-colors">
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function EditPage() {
   const navigate = useNavigate();
@@ -24,6 +64,9 @@ export default function EditPage() {
   const updateLetterContent = useClaimStore((s) => s.updateLetterContent);
   const [copied, setCopied] = useState(false);
   const [isManualEdited, setIsManualEdited] = useState(false);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ type: 'letter' | 'tone'; letterType?: LetterType; toneLevel?: number } | null>(null);
 
   useEffect(() => {
     if (!formData.claimType) {
@@ -37,16 +80,32 @@ export default function EditPage() {
 
   const toneLevel = result?.toneLevel ?? 50;
 
-  const handleToneChange = (level: number) => {
+  const requestAction = useCallback((action: { type: 'letter' | 'tone'; letterType?: LetterType; toneLevel?: number }) => {
     if (isManualEdited) {
-      setIsManualEdited(false);
+      setPendingAction(action);
+      setModalOpen(true);
+    } else {
+      executeAction(action);
     }
-    setToneLevel(level);
+  }, [isManualEdited]);
+
+  const executeAction = useCallback((action: { type: 'letter' | 'tone'; letterType?: LetterType; toneLevel?: number }) => {
+    if (action.type === 'letter' && action.letterType) {
+      setIsManualEdited(false);
+      generateLetter(action.letterType);
+    } else if (action.type === 'tone' && action.toneLevel !== undefined) {
+      setIsManualEdited(false);
+      setToneLevel(action.toneLevel);
+    }
+    setPendingAction(null);
+  }, [generateLetter, setToneLevel]);
+
+  const handleToneChange = (level: number) => {
+    requestAction({ type: 'tone', toneLevel: level });
   };
 
   const handleLetterTypeChange = (type: LetterType) => {
-    setIsManualEdited(false);
-    generateLetter(type);
+    requestAction({ type: 'letter', letterType: type });
   };
 
   const handleContentEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -58,6 +117,18 @@ export default function EditPage() {
     if (!result) return;
     setIsManualEdited(false);
     generateLetter(result.letterType);
+  };
+
+  const handleConfirmModal = () => {
+    if (pendingAction) {
+      executeAction(pendingAction);
+    }
+    setModalOpen(false);
+  };
+
+  const handleCancelModal = () => {
+    setModalOpen(false);
+    setPendingAction(null);
   };
 
   const handleCopy = async () => {
@@ -86,10 +157,22 @@ export default function EditPage() {
 
   const toneStyle = getToneLabel();
 
+  const totalMissing = result?.missingGroups.reduce((sum, g) => sum + g.items.length, 0) ?? 0;
+
   if (!result) return null;
 
   return (
     <div className="min-h-screen bg-slate-100">
+      <ConfirmModal
+        open={modalOpen}
+        title="确认重新生成"
+        message="您已手动修改过函件内容，切换函件类型或调整措辞将覆盖您的修改。确认要重新生成吗？"
+        confirmLabel="确认重新生成"
+        cancelLabel="保留当前内容"
+        onConfirm={handleConfirmModal}
+        onCancel={handleCancelModal}
+      />
+
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <button onClick={() => navigate('/preview')} className="btn-ghost flex items-center gap-2 -ml-4">
@@ -201,20 +284,6 @@ export default function EditPage() {
                 </p>
               </div>
             </div>
-
-            {isManualEdited && (
-              <div className="mt-5 flex items-center gap-2 text-sm text-warn-700 bg-warn-50 px-4 py-3 rounded-lg">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>您已手动修改函件内容，调整措辞或切换函件类型将覆盖您的修改。</span>
-                <button
-                  onClick={handleRegenerate}
-                  className="ml-auto flex items-center gap-1 text-primary-700 hover:text-primary-800 font-medium"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  重新生成
-                </button>
-              </div>
-            )}
           </div>
 
           <div className="card">
@@ -223,9 +292,20 @@ export default function EditPage() {
                 <Scale className="w-5 h-5 text-primary-600" />
                 函件内容（可直接编辑）
               </h3>
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Info className="w-3.5 h-3.5" />
-                提示：可直接在右侧文本框中手动修改措辞
+              <div className="flex items-center gap-3">
+                {isManualEdited && (
+                  <button
+                    onClick={handleRegenerate}
+                    className="flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800 font-medium"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    重新生成
+                  </button>
+                )}
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Info className="w-3.5 h-3.5" />
+                  可直接在右侧文本框中修改措辞
+                </div>
               </div>
             </div>
 
@@ -246,20 +326,15 @@ export default function EditPage() {
               </div>
             </div>
 
-            {result.missingEvidences.length > 0 && (
+            {totalMissing > 0 && (
               <div className="mt-5 bg-warn-50 border border-warn-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 text-warn-700 font-medium text-sm mb-2">
                   <AlertTriangle className="w-4 h-4" />
-                  仍有 {result.missingEvidences.length} 项事实依据缺失，请在发函前补充
+                  仍有 {totalMissing} 项事实依据缺失，请在发函前补充
                 </div>
-                <ul className="text-sm text-warn-800 list-disc list-inside space-y-1">
-                  {result.missingEvidences.slice(0, 3).map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
-                  {result.missingEvidences.length > 3 && (
-                    <li>另有 {result.missingEvidences.length - 3} 项...请返回预览页查看完整清单</li>
-                  )}
-                </ul>
+                <p className="text-xs text-warn-700">
+                  返回预览页可查看按类别分组的完整缺失清单，点击可跳转填写页对应区域补充。
+                </p>
               </div>
             )}
           </div>

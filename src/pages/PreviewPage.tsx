@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  ArrowRight,
   FileText,
   Copy,
   Download,
@@ -10,10 +9,26 @@ import {
   CheckCircle,
   Edit3,
   Info,
+  ClipboardList,
+  FileCheck,
+  Scale,
+  ArrowRight,
 } from 'lucide-react';
 import { useClaimStore } from '@/store/useClaimStore';
 import { LETTER_TYPES } from '@/data/claimTypes';
-import type { LetterType } from '@/types';
+import type { LetterType, MissingGroup } from '@/types';
+
+const groupIcons = {
+  fact: ClipboardList,
+  contract: Scale,
+  evidence: FileCheck,
+};
+
+const groupColors = {
+  fact: { bg: 'bg-warn-50', border: 'border-warn-200', headerBg: 'bg-warn-50', headerBorder: 'border-warn-200', icon: 'text-warn-600', title: 'text-warn-800', text: 'text-warn-800', badge: 'bg-warn-100 text-warn-700' },
+  contract: { bg: 'bg-blue-50', border: 'border-blue-200', headerBg: 'bg-blue-50', headerBorder: 'border-blue-200', icon: 'text-blue-600', title: 'text-blue-800', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700' },
+  evidence: { bg: 'bg-red-50', border: 'border-red-200', headerBg: 'bg-red-50', headerBorder: 'border-red-200', icon: 'text-red-600', title: 'text-red-800', text: 'text-red-800', badge: 'bg-red-100 text-red-700' },
+};
 
 export default function PreviewPage() {
   const navigate = useNavigate();
@@ -54,7 +69,58 @@ export default function PreviewPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleMissingClick = (targetSection: string) => {
+    navigate(`/form?scrollTo=${targetSection}`);
+  };
+
+  const totalMissing = result?.missingGroups.reduce((sum, g) => sum + g.items.length, 0) ?? 0;
+
+  const renderMissingGroups = (groups: MissingGroup[]) => {
+    if (groups.length === 0) return null;
+    return (
+      <div className="space-y-4">
+        {groups.map((group) => {
+          const Icon = groupIcons[group.group];
+          const colors = groupColors[group.group];
+          return (
+            <div key={group.group} className={`rounded-xl border-2 ${colors.border} overflow-hidden`}>
+              <div className={`${colors.headerBg} px-5 py-3 border-b ${colors.headerBorder} flex items-center justify-between`}>
+                <div className="flex items-center gap-2">
+                  <Icon className={`w-5 h-5 ${colors.icon}`} />
+                  <h4 className={`font-semibold ${colors.title}`}>{group.groupTitle}</h4>
+                </div>
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${colors.badge}`}>
+                  {group.items.length} 项
+                </span>
+              </div>
+              <div className="p-4 space-y-2">
+                {group.items.map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleMissingClick(item.targetSection)}
+                    className="w-full flex items-start gap-3 p-3 rounded-lg bg-white border border-slate-200 hover:border-primary-400 hover:bg-primary-50/50 transition-all text-left group/item"
+                  >
+                    <span className={`w-5 h-5 rounded-full ${colors.badge} text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                      {idx + 1}
+                    </span>
+                    <span className={`text-sm ${colors.text} font-medium leading-relaxed flex-1`}>
+                      {item.text}
+                    </span>
+                    <ArrowRight className="w-4 h-4 text-slate-400 group-hover/item:text-primary-600 flex-shrink-0 mt-0.5 transition-colors" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (!result) return null;
+
+  const cb = formData.costBreakdown;
+  const hasCostBreakdown = (cb.personnelCost && cb.personnelCost > 0) || (cb.equipmentCost && cb.equipmentCost > 0) || (cb.managementCost && cb.managementCost > 0) || (cb.materialCost && cb.materialCost > 0) || (cb.otherCost && cb.otherCost > 0);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -140,39 +206,21 @@ export default function PreviewPage() {
           </div>
 
           <aside className="space-y-5">
-            {result.missingEvidences.length > 0 && (
-              <div className="bg-white rounded-xl border-2 border-warn-400 shadow-sm overflow-hidden">
-                <div className="bg-warn-50 px-5 py-3.5 border-b border-warn-200 flex items-center gap-2">
+            {totalMissing > 0 ? (
+              <div className="space-y-0">
+                <div className="flex items-center gap-2 mb-4 px-1">
                   <AlertTriangle className="w-5 h-5 text-warn-600" />
-                  <h3 className="font-semibold text-warn-800">缺失事实依据提醒</h3>
+                  <h3 className="font-semibold text-warn-800">缺失依据提醒</h3>
+                  <span className="text-xs bg-warn-100 text-warn-700 px-2 py-0.5 rounded-full font-medium">
+                    共 {totalMissing} 项
+                  </span>
                 </div>
-                <div className="p-5">
-                  <p className="text-sm text-slate-600 mb-4">
-                    为确保索赔函件具备完整的法律效力，请在正式发出前补充以下缺失材料：
-                  </p>
-                  <ul className="space-y-2.5">
-                    {result.missingEvidences.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2.5">
-                        <span className="w-5 h-5 rounded-full bg-warn-100 text-warn-700 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span className="text-sm text-warn-800 font-medium leading-relaxed">
-                          {item}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-5 pt-4 border-t border-warn-100">
-                    <p className="text-xs text-warn-700 flex items-start gap-1.5">
-                      <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      建议：缺少关键证据可能导致索赔主张不被对方认可，请尽量收集齐全后再发函。
-                    </p>
-                  </div>
-                </div>
+                <p className="text-sm text-slate-600 mb-4 px-1">
+                  点击缺失项可跳转到填写页对应区域补充，补完返回预览时状态自动更新。
+                </p>
+                {renderMissingGroups(result.missingGroups)}
               </div>
-            )}
-
-            {result.missingEvidences.length === 0 && (
+            ) : (
               <div className="bg-white rounded-xl border-2 border-green-400 shadow-sm">
                 <div className="bg-green-50 px-5 py-3.5 border-b border-green-200 flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600" />
@@ -198,18 +246,40 @@ export default function PreviewPage() {
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500 flex-shrink-0">合同条款</dt>
-                  <dd className="text-slate-800 font-medium text-right">第 {formData.contractClause || '—'} 条</dd>
+                  <dd className="text-slate-800 font-medium text-right">{formData.contractClause || '—'}</dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500 flex-shrink-0">停窝工天数</dt>
                   <dd className="text-slate-800 font-medium text-right">{formData.confirmedDays ?? '—'} 天</dd>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <dt className="text-slate-500 flex-shrink-0">索赔费用</dt>
+                  <dt className="text-slate-500 flex-shrink-0">索赔总费用</dt>
                   <dd className="text-slate-800 font-medium text-right">
-                    {formData.incurredCost ? `¥ ${formData.incurredCost.toLocaleString()}` : '—'}
+                    {formData.incurredCost ? `¥ ${formData.incurredCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                   </dd>
                 </div>
+                {hasCostBreakdown && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <dt className="text-slate-500 mb-2">费用明细</dt>
+                    <dd className="space-y-1.5">
+                      {cb.personnelCost && cb.personnelCost > 0 && (
+                        <div className="flex justify-between text-xs"><span className="text-slate-600">人员窝工费</span><span className="text-slate-800">¥ {cb.personnelCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                      )}
+                      {cb.equipmentCost && cb.equipmentCost > 0 && (
+                        <div className="flex justify-between text-xs"><span className="text-slate-600">机械闲置费</span><span className="text-slate-800">¥ {cb.equipmentCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                      )}
+                      {cb.managementCost && cb.managementCost > 0 && (
+                        <div className="flex justify-between text-xs"><span className="text-slate-600">现场管理费</span><span className="text-slate-800">¥ {cb.managementCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                      )}
+                      {cb.materialCost && cb.materialCost > 0 && (
+                        <div className="flex justify-between text-xs"><span className="text-slate-600">材料保管费</span><span className="text-slate-800">¥ {cb.materialCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                      )}
+                      {cb.otherCost && cb.otherCost > 0 && (
+                        <div className="flex justify-between text-xs"><span className="text-slate-600">{cb.otherCostDesc || '其他费用'}</span><span className="text-slate-800">¥ {cb.otherCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                      )}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500 flex-shrink-0">已提交证据</dt>
                   <dd className="text-slate-800 font-medium text-right">{formData.evidences.length} 项</dd>
