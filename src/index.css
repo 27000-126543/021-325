@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Noto Sans SC", system-ui, sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #F8FAFC;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-700 text-white px-6 py-3 rounded-lg font-medium
+           hover:bg-primary-800 active:bg-primary-900 transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+           disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300;
+  }
+
+  .btn-secondary {
+    @apply border-2 border-primary-700 text-primary-700 bg-white px-6 py-3 rounded-lg font-medium
+           hover:bg-primary-50 active:bg-primary-100 transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+
+  .btn-ghost {
+    @apply text-gray-600 hover:text-primary-700 px-4 py-2 rounded-lg font-medium
+           hover:bg-gray-100 transition-all duration-200;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 border border-gray-300 rounded-lg
+           focus:border-primary-500 focus:ring-2 focus:ring-primary-100
+           outline-none transition-all duration-200 bg-white text-gray-900
+           placeholder:text-gray-400;
+  }
+
+  .form-label {
+    @apply block text-sm font-medium text-gray-700 mb-2;
+  }
+
+  .form-required {
+    @apply text-warn-600 ml-1;
+  }
+
+  .card {
+    @apply bg-white rounded-xl shadow-paper border border-gray-100 p-6 transition-shadow duration-200;
+  }
+
+  .card-hover {
+    @apply hover:shadow-paper-hover cursor-pointer;
+  }
+
+  .letter-paper {
+    @apply bg-white shadow-paper rounded-none p-12 font-serif leading-loose text-gray-800;
+    min-height: 800px;
+  }
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #0D9488, #F97316, #DC2626);
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid #0F766E;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  transition: all 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+  border: 3px solid #0F766E;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
