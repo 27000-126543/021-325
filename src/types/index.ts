@@ -4,13 +4,18 @@ export type LetterType = 'intent_notice' | 'claim_report' | 'reminder';
 
 export type ToneLevel = number;
 
-export interface CostBreakdown {
-  personnelCost: number | null;
-  equipmentCost: number | null;
-  managementCost: number | null;
-  materialCost: number | null;
-  otherCost: number | null;
-  otherCostDesc: string;
+export interface CostItem {
+  id: string;
+  name: string;
+  amount: number | null;
+}
+
+export interface EvidenceDetail {
+  name: string;
+  obtainedDate: string;
+  custodian: string;
+  fileNo: string;
+  remark: string;
 }
 
 export interface ClaimFormData {
@@ -19,8 +24,8 @@ export interface ClaimFormData {
   eventDescription: string;
   confirmedDays: number | null;
   incurredCost: number | null;
-  costBreakdown: CostBreakdown;
-  evidences: string[];
+  costItems: CostItem[];
+  evidences: EvidenceDetail[];
   customEvidence: string;
   projectName: string;
   contractNumber: string;
@@ -73,4 +78,17 @@ export interface ToneVariant {
   soft: string;
   medium: string;
   hard: string;
+}
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  claimType: ClaimType;
+  createdAt: string;
+  updatedAt: string;
+  totalCost: number | null;
+  confirmedDays: number | null;
+  evidenceCount: number;
+  formData: ClaimFormData;
+  result: GeneratedResult | null;
 }

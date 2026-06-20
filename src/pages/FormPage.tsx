@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -12,9 +12,18 @@ import {
   Check,
   AlertCircle,
   Calculator,
+  Plus,
+  Trash2,
+  Save,
+  ChevronDown,
+  ChevronUp,
+  User,
+  Hash,
+  MessageSquare,
 } from 'lucide-react';
 import { useClaimStore } from '@/store/useClaimStore';
 import { COMMON_EVIDENCES, getClaimTypeConfig } from '@/data/claimTypes';
+import type { EvidenceDetail } from '@/types';
 
 const iconMap: Record<string, typeof Building2> = {
   Building2,
@@ -22,16 +31,28 @@ const iconMap: Record<string, typeof Building2> = {
   Package,
 };
 
+const PRESET_COST_NAMES = ['临建维护费', '二次倒运费', '资金占用费', '保险费', '检测费'];
+
 export default function FormPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const scrollTo = searchParams.get('scrollTo');
 
   const formData = useClaimStore((s) => s.formData);
+  const result = useClaimStore((s) => s.result);
+  const activeRecordId = useClaimStore((s) => s.activeRecordId);
   const setFormData = useClaimStore((s) => s.setFormData);
-  const setCostBreakdown = useClaimStore((s) => s.setCostBreakdown);
+  const addCostItem = useClaimStore((s) => s.addCostItem);
+  const updateCostItem = useClaimStore((s) => s.updateCostItem);
+  const removeCostItem = useClaimStore((s) => s.removeCostItem);
   const toggleEvidence = useClaimStore((s) => s.toggleEvidence);
+  const updateEvidenceDetail = useClaimStore((s) => s.updateEvidenceDetail);
   const generateLetter = useClaimStore((s) => s.generateLetter);
+  const saveProjectToRecords = useClaimStore((s) => s.saveProjectToRecords);
+
+  const [showPresetCosts, setShowPresetCosts] = useState(false);
+  const [expandedEvidence, setExpandedEvidence] = useState<Record<string, boolean>>({});
+  const [saveMsg, setSaveMsg] = useState<string>('');
 
   const claimConfig = formData.claimType ? getClaimTypeConfig(formData.claimType) : null;
   const ClaimIcon = formData.claimType ? iconMap[claimConfig?.icon || 'Building2'] : FileText;
@@ -53,7 +74,11 @@ export default function FormPage() {
     }
   }, [scrollTo]);
 
-  const cb = formData.costBreakdown;
+  useEffect(() => {
+    if (!result && formData.claimType) {
+      generateLetter('intent_notice');
+    }
+  }, [result, formData.claimType, generateLetter]);
 
   const canSubmit =
     formData.projectName.trim() &&
@@ -62,8 +87,7 @@ export default function FormPage() {
     formData.eventDescription.trim() &&
     formData.confirmedDays !== null &&
     formData.confirmedDays > 0 &&
-    formData.incurredCost !== null &&
-    formData.incurredCost > 0;
+    (formData.incurredCost != null || formData.costItems.some((it) => it.amount && it.amount > 0));
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -71,7 +95,140 @@ export default function FormPage() {
     navigate('/preview');
   };
 
+  const handleSaveProject = () => {
+    const id = saveProjectToRecords();
+    if (id) {
+      setSaveMsg(activeRecordId ? '✓ 已更新项目归档' : '✓ 已保存为新项目归档');
+      setTimeout(() => setSaveMsg(''), 2500);
+    } else {
+      setSaveMsg('⚠ 请先填写项目名称');
+      setTimeout(() => setSaveMsg(''), 2500);
+    }
+  };
+
+  const handleToggleExpandEvidence = (name: string) => {
+    setExpandedEvidence((prev) => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  const evidenceDetailMap: Record<string, EvidenceDetail> = {};
+  for (const e of formData.evidences) {
+    evidenceDetailMap[e.name] = e;
+  }
+
   if (!claimConfig) return null;
+
+  const totalCost = formData.incurredCost ?? 0;
+
+  const renderEvidenceBlock = (ev: string, required: boolean) => {
+    const checked = !!evidenceDetailMap[ev];
+    const expanded = !!expandedEvidence[ev];
+    const detail = evidenceDetailMap[ev];
+    return (
+      <div
+        key={ev}
+        className={`rounded-lg border transition-all ${
+          checked
+            ? 'border-primary-500 bg-primary-50/60'
+            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+        }`}
+      >
+        <label className="flex items-start gap-3 p-3.5 cursor-pointer">
+          <div
+            className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors ${
+              checked ? 'bg-primary-600 border-primary-600' : 'border-slate-300'
+            }`}
+          >
+            {checked && <Check className="w-3.5 h-3.5 text-white" />}
+          </div>
+          <input
+            type="checkbox"
+            className="hidden"
+            checked={checked}
+            onChange={() => toggleEvidence(ev)}
+          />
+          <div className="flex-1 flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <span className={`text-sm ${checked ? 'text-primary-800 font-medium' : 'text-slate-700'}`}>
+                {ev}
+              </span>
+              {required && (
+                <span className="ml-2 inline-flex items-center text-[10px] text-warn-700 bg-warn-100 rounded-full px-1.5 py-0.5 font-medium">
+                  必备
+                </span>
+              )}
+            </div>
+            {checked && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleToggleExpandEvidence(ev);
+                }}
+                className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-slate-500 hover:text-primary-700 rounded hover:bg-white/80 transition"
+              >
+                {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            )}
+          </div>
+        </label>
+        {checked && expanded && (
+          <div className="px-3.5 pb-4 pt-1 grid md:grid-cols-2 gap-3 border-t border-primary-200/60 mt-1">
+            <div>
+              <label className="form-label text-xs flex items-center gap-1">
+                <CalendarDays className="w-3 h-3" />
+                取得时间
+              </label>
+              <input
+                type="date"
+                className="input-field py-1.5 text-sm"
+                value={detail?.obtainedDate || ''}
+                onChange={(e) => updateEvidenceDetail(ev, { obtainedDate: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="form-label text-xs flex items-center gap-1">
+                <User className="w-3 h-3" />
+                保管人
+              </label>
+              <input
+                type="text"
+                className="input-field py-1.5 text-sm"
+                placeholder="例如：李XX"
+                value={detail?.custodian || ''}
+                onChange={(e) => updateEvidenceDetail(ev, { custodian: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="form-label text-xs flex items-center gap-1">
+                <Hash className="w-3 h-3" />
+                文件编号
+              </label>
+              <input
+                type="text"
+                className="input-field py-1.5 text-sm"
+                placeholder="例如：JL-2024-0615-01"
+                value={detail?.fileNo || ''}
+                onChange={(e) => updateEvidenceDetail(ev, { fileNo: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="form-label text-xs flex items-center gap-1">
+                <MessageSquare className="w-3 h-3" />
+                备注
+              </label>
+              <input
+                type="text"
+                className="input-field py-1.5 text-sm"
+                placeholder="例如：原件1份，存商务资料柜"
+                value={detail?.remark || ''}
+                onChange={(e) => updateEvidenceDetail(ev, { remark: e.target.value })}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -79,7 +236,7 @@ export default function FormPage() {
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <button onClick={() => navigate('/')} className="btn-ghost flex items-center gap-2 -ml-4">
             <ArrowLeft className="w-4 h-4" />
-            返回选择索赔类型
+            返回首页
           </button>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 text-sm text-slate-500">
@@ -110,10 +267,27 @@ export default function FormPage() {
             <h2 className="text-xl font-semibold text-slate-900 mb-1">{claimConfig.title}</h2>
             <p className="text-sm text-slate-600">{claimConfig.description}</p>
           </div>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleSaveProject}
+              className="btn-secondary flex items-center justify-center gap-1.5 !py-2 !px-3 text-sm"
+            >
+              <Save className="w-4 h-4" />
+              {activeRecordId ? '更新归档' : '保存归档'}
+            </button>
+            {saveMsg && (
+              <div className={`text-xs text-right font-medium ${saveMsg.startsWith('✓') ? 'text-green-600' : 'text-warn-600'}`}>
+                {saveMsg}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-6">
-          <div ref={(el) => { sectionRefs.current['basic-info'] = el; }} className="card">
+          <div
+            ref={(el) => { sectionRefs.current['basic-info'] = el; }}
+            className="card"
+          >
             <h3 className="text-lg font-semibold text-slate-900 mb-5 flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary-600" />
               项目与函件基本信息
@@ -184,7 +358,10 @@ export default function FormPage() {
             </div>
           </div>
 
-          <div ref={(el) => { sectionRefs.current['claim-facts'] = el; }} className="card">
+          <div
+            ref={(el) => { sectionRefs.current['claim-facts'] = el; }}
+            className="card"
+          >
             <h3 className="text-lg font-semibold text-slate-900 mb-5 flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-primary-600" />
               索赔事实与依据
@@ -199,7 +376,7 @@ export default function FormPage() {
                   value={formData.contractClause}
                   onChange={(e) => setFormData({ contractClause: e.target.value })}
                 />
-                <p className="mt-1.5 text-xs text-slate-500">支持输入"12.2"、"第12.2条"等多种格式，正文将自动规范为"第12.2条"</p>
+                <p className="mt-1.5 text-xs text-slate-500">支持输入"12.2"、"第12.2条"、"12.2, 23.3"等，正文自动规范为"第12.2条"</p>
               </div>
               <div>
                 <label className="form-label">已确认停窝工天数<span className="form-required">*</span></label>
@@ -225,186 +402,141 @@ export default function FormPage() {
             </div>
           </div>
 
-          <div ref={(el) => { sectionRefs.current['cost-detail'] = el; }} className="card">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-primary-600" />
-              费用明细录入
-            </h3>
-            <p className="text-sm text-slate-600 mb-5">
-              请分项填写停窝工期间已发生的各项费用，系统将自动汇总为索赔总金额并写入函件正文。
-            </p>
-            <div className="grid md:grid-cols-2 gap-5 mb-4">
+          <div
+            ref={(el) => { sectionRefs.current['cost-detail'] = el; }}
+            className="card"
+          >
+            <div className="flex items-start justify-between mb-2">
               <div>
-                <label className="form-label">人员窝工费（元）</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-field"
-                  placeholder="含工人工资、社保等"
-                  value={cb.personnelCost ?? ''}
-                  onChange={(e) => setCostBreakdown({ personnelCost: e.target.value ? Number(e.target.value) : null })}
-                />
-                <p className="mt-1 text-xs text-slate-500">停窝工期间现场人员工资、社保、住宿等费用</p>
+                <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-primary-600" />
+                  费用明细录入
+                </h3>
+                <p className="text-sm text-slate-600 mt-1">
+                  请分项填写停窝工期间已发生的各项费用，系统将自动汇总并写入索赔报告正文。
+                </p>
               </div>
-              <div>
-                <label className="form-label">机械闲置费（元）</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-field"
-                  placeholder="含租赁费、折旧等"
-                  value={cb.equipmentCost ?? ''}
-                  onChange={(e) => setCostBreakdown({ equipmentCost: e.target.value ? Number(e.target.value) : null })}
-                />
-                <p className="mt-1 text-xs text-slate-500">塔吊、挖掘机等机械设备的租赁费或折旧费</p>
+              <div className="relative">
+                <button
+                  onClick={() => setShowPresetCosts((v) => !v)}
+                  className="btn-ghost text-sm !py-1.5 !px-3 flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  快速添加
+                </button>
+                {showPresetCosts && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-20">
+                    {PRESET_COST_NAMES.map((name) => (
+                      <button
+                        key={name}
+                        onClick={() => {
+                          addCostItem(name);
+                          setShowPresetCosts(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-primary-50 hover:text-primary-700"
+                      >
+                        + {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="form-label">现场管理费（元）</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-field"
-                  placeholder="含管理人员工资、办公费等"
-                  value={cb.managementCost ?? ''}
-                  onChange={(e) => setCostBreakdown({ managementCost: e.target.value ? Number(e.target.value) : null })}
-                />
-                <p className="mt-1 text-xs text-slate-500">停工期间项目管理人员的工资、办公费、临时设施维护费</p>
-              </div>
-              <div>
-                <label className="form-label">材料保管费（元）</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-field"
-                  placeholder="含仓储、损耗等"
-                  value={cb.materialCost ?? ''}
-                  onChange={(e) => setCostBreakdown({ materialCost: e.target.value ? Number(e.target.value) : null })}
-                />
-                <p className="mt-1 text-xs text-slate-500">已进场材料的保管、仓储、防护损耗等费用</p>
-              </div>
-              <div>
-                <label className="form-label">其他费用（元）</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-field"
-                  placeholder="如有其他费用项"
-                  value={cb.otherCost ?? ''}
-                  onChange={(e) => setCostBreakdown({ otherCost: e.target.value ? Number(e.target.value) : null })}
-                />
-                <p className="mt-1 text-xs text-slate-500">如资金占用成本、保险费、检测费等</p>
-              </div>
-              {cb.otherCost !== null && cb.otherCost > 0 && (
-                <div>
-                  <label className="form-label">其他费用说明</label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    placeholder="例如：资金占用成本"
-                    value={cb.otherCostDesc}
-                    onChange={(e) => setCostBreakdown({ otherCostDesc: e.target.value })}
-                  />
-                </div>
-              )}
             </div>
 
-            <div className="flex items-center justify-between p-4 bg-primary-50 rounded-lg border border-primary-200">
-              <div className="flex items-center gap-2 text-sm text-primary-700 font-medium">
-                <Calculator className="w-4 h-4" />
-                费用合计（自动汇总）
-              </div>
-              <div className="text-lg font-bold text-primary-800">
-                {formData.incurredCost ? `¥ ${formData.incurredCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '¥ 0.00'}
+            <div className="space-y-3 mb-4">
+              {formData.costItems.map((item, idx) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-12 gap-3 items-center p-3 bg-slate-50/70 rounded-lg border border-slate-200"
+                >
+                  <div className="col-span-1 text-xs text-slate-500 text-center font-medium">{idx + 1}</div>
+                  <div className="col-span-6">
+                    <input
+                      type="text"
+                      className="input-field py-2 text-sm"
+                      placeholder="费用项目名称"
+                      value={item.name}
+                      onChange={(e) => updateCostItem(item.id, { name: e.target.value })}
+                    />
+                  </div>
+                  <div className="col-span-4">
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">¥</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="input-field py-2 text-sm pl-7"
+                        placeholder="0.00"
+                        value={item.amount ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          updateCostItem(item.id, { amount: v === '' ? null : Number(v) });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="col-span-1 flex justify-center">
+                    <button
+                      onClick={() => removeCostItem(item.id)}
+                      className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                      title="删除该行"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <button
+                onClick={() => addCostItem('新费用项')}
+                className="btn-ghost text-sm !py-2 flex items-center gap-1 text-primary-700 hover:text-primary-800"
+              >
+                <Plus className="w-4 h-4" />
+                新增一行费用项
+              </button>
+              <div className="flex items-center justify-end gap-2 flex-1 md:flex-none min-w-[240px]">
+                <div className="flex items-center justify-between w-full p-4 bg-primary-50 rounded-lg border border-primary-200">
+                  <div className="flex items-center gap-2 text-sm text-primary-700 font-medium">
+                    <Calculator className="w-4 h-4" />
+                    费用合计（自动汇总）
+                  </div>
+                  <div className="text-lg font-bold text-primary-800">
+                    ¥ {formatNumber(totalCost)}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div ref={(el) => { sectionRefs.current['evidence'] = el; }} className="card">
+          <div
+            ref={(el) => { sectionRefs.current['evidence'] = el; }}
+            className="card"
+          >
             <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-primary-600" />
-              现有证据材料
+              证据材料台账
             </h3>
             <p className="text-sm text-slate-600 mb-5">
-              请勾选您目前已收集到的证据材料。未勾选的必备证据将在预览时醒目标注提醒。
+              勾选您已收集到的证据。勾选后可展开填写取得时间、保管人、文件编号和备注；这些信息将生成《证据目录》，缺失项补齐后目录自动更新。
             </p>
 
-            <div className="mb-4">
+            <div className="mb-5">
               <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-1.5">
                 <AlertCircle className="w-4 h-4 text-warn-600" />
                 本索赔类型必备证据
               </h4>
-              <div className="grid md:grid-cols-2 gap-2.5">
-                {claimConfig.requiredEvidences.map((ev) => {
-                  const checked = formData.evidences.includes(ev);
-                  return (
-                    <label
-                      key={ev}
-                      className={`flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all ${
-                        checked
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div
-                        className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors ${
-                          checked ? 'bg-primary-600 border-primary-600' : 'border-slate-300'
-                        }`}
-                      >
-                        {checked && <Check className="w-3.5 h-3.5 text-white" />}
-                      </div>
-                      <input
-                        type="checkbox"
-                        className="hidden"
-                        checked={checked}
-                        onChange={() => toggleEvidence(ev)}
-                      />
-                      <span className={`text-sm ${checked ? 'text-primary-800 font-medium' : 'text-slate-700'}`}>
-                        {ev}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="space-y-2.5">
+                {claimConfig.requiredEvidences.map((ev) => renderEvidenceBlock(ev, true))}
               </div>
             </div>
 
             <div className="mb-5">
               <h4 className="text-sm font-medium text-slate-700 mb-3">其他通用证据</h4>
-              <div className="grid md:grid-cols-2 gap-2.5">
-                {COMMON_EVIDENCES.map((ev) => {
-                  const checked = formData.evidences.includes(ev);
-                  return (
-                    <label
-                      key={ev}
-                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                        checked
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div
-                        className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors ${
-                          checked ? 'bg-primary-600 border-primary-600' : 'border-slate-300'
-                        }`}
-                      >
-                        {checked && <Check className="w-3.5 h-3.5 text-white" />}
-                      </div>
-                      <input
-                        type="checkbox"
-                        className="hidden"
-                        checked={checked}
-                        onChange={() => toggleEvidence(ev)}
-                      />
-                      <span className={`text-sm ${checked ? 'text-primary-800' : 'text-slate-700'}`}>
-                        {ev}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="grid md:grid-cols-1 gap-2.5">
+                {COMMON_EVIDENCES.map((ev) => renderEvidenceBlock(ev, false))}
               </div>
             </div>
 
@@ -424,14 +556,18 @@ export default function FormPage() {
             {!canSubmit && (
               <div className="flex items-center gap-2 text-sm text-warn-700 bg-warn-50 px-4 py-3 rounded-lg md:mr-auto">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                请填写所有必填项（带 * 标记）后生成函件
+                请填写所有必填项（带 * 标记）和至少一项费用后生成函件
               </div>
             )}
             <button onClick={() => navigate('/')} className="btn-secondary flex items-center justify-center gap-2">
               <ArrowLeft className="w-4 h-4" />
-              上一步
+              返回首页
             </button>
-            <button onClick={handleSubmit} disabled={!canSubmit} className="btn-primary flex items-center justify-center gap-2">
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="btn-primary flex items-center justify-center gap-2"
+            >
               <Send className="w-4 h-4" />
               生成索赔函件
             </button>
@@ -440,4 +576,8 @@ export default function FormPage() {
       </main>
     </div>
   );
+}
+
+function formatNumber(num: number): string {
+  return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

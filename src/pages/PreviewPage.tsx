@@ -13,9 +13,14 @@ import {
   FileCheck,
   Scale,
   ArrowRight,
+  CalendarDays,
+  User,
+  Hash,
+  MessageSquare,
+  Save,
 } from 'lucide-react';
 import { useClaimStore } from '@/store/useClaimStore';
-import { LETTER_TYPES } from '@/data/claimTypes';
+import { LETTER_TYPES, getClaimTypeConfig } from '@/data/claimTypes';
 import type { LetterType, MissingGroup } from '@/types';
 
 const groupIcons = {
@@ -30,12 +35,19 @@ const groupColors = {
   evidence: { bg: 'bg-red-50', border: 'border-red-200', headerBg: 'bg-red-50', headerBorder: 'border-red-200', icon: 'text-red-600', title: 'text-red-800', text: 'text-red-800', badge: 'bg-red-100 text-red-700' },
 };
 
+function fmtDate(s: string): string {
+  return s || '—';
+}
+
 export default function PreviewPage() {
   const navigate = useNavigate();
   const formData = useClaimStore((s) => s.formData);
   const result = useClaimStore((s) => s.result);
+  const activeRecordId = useClaimStore((s) => s.activeRecordId);
   const generateLetter = useClaimStore((s) => s.generateLetter);
+  const saveProjectToRecords = useClaimStore((s) => s.saveProjectToRecords);
   const [copied, setCopied] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
 
   useEffect(() => {
     if (!formData.claimType) {
@@ -71,6 +83,16 @@ export default function PreviewPage() {
 
   const handleMissingClick = (targetSection: string) => {
     navigate(`/form?scrollTo=${targetSection}`);
+  };
+
+  const handleSave = () => {
+    const id = saveProjectToRecords();
+    if (id) {
+      setSaveMsg(activeRecordId ? '✓ 已更新项目归档' : '✓ 已保存归档');
+    } else {
+      setSaveMsg('⚠ 请先填写项目名称');
+    }
+    setTimeout(() => setSaveMsg(''), 2500);
   };
 
   const totalMissing = result?.missingGroups.reduce((sum, g) => sum + g.items.length, 0) ?? 0;
@@ -119,8 +141,16 @@ export default function PreviewPage() {
 
   if (!result) return null;
 
-  const cb = formData.costBreakdown;
-  const hasCostBreakdown = (cb.personnelCost && cb.personnelCost > 0) || (cb.equipmentCost && cb.equipmentCost > 0) || (cb.managementCost && cb.managementCost > 0) || (cb.materialCost && cb.materialCost > 0) || (cb.otherCost && cb.otherCost > 0);
+  const costItems = formData.costItems.filter(
+    (it) => it.name.trim() && it.amount != null && !isNaN(it.amount) && it.amount > 0
+  );
+  const hasCostBreakdown = costItems.length > 0;
+  const totalCost = costItems.reduce((acc, it) => acc + (it.amount || 0), 0);
+
+  const claimConfig = formData.claimType ? getClaimTypeConfig(formData.claimType) : null;
+
+  const evidences = formData.evidences.filter((e) => e.name.trim());
+  const hasEvidences = evidences.length > 0 || formData.customEvidence.trim();
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -152,23 +182,34 @@ export default function PreviewPage() {
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="grid lg:grid-cols-[1fr_380px] gap-6">
           <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-slate-200 p-1 inline-flex gap-1 shadow-sm">
-              {LETTER_TYPES.map((type) => {
-                const isActive = result.letterType === type.id;
-                return (
-                  <button
-                    key={type.id}
-                    onClick={() => handleSwitchLetter(type.id)}
-                    className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      isActive
-                        ? 'bg-primary-700 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-primary-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {type.title}
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="bg-white rounded-xl border border-slate-200 p-1 inline-flex gap-1 shadow-sm">
+                {LETTER_TYPES.map((type) => {
+                  const isActive = result.letterType === type.id;
+                  return (
+                    <button
+                      key={type.id}
+                      onClick={() => handleSwitchLetter(type.id)}
+                      className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                        isActive
+                          ? 'bg-primary-700 text-white shadow-sm'
+                          : 'text-slate-600 hover:text-primary-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {type.title}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                {saveMsg && (
+                  <span className={`text-sm font-medium ${saveMsg.startsWith('✓') ? 'text-green-600' : 'text-warn-600'}`}>{saveMsg}</span>
+                )}
+                <button onClick={handleSave} className="btn-secondary !py-2 !px-3 text-sm flex items-center gap-1.5">
+                <Save className="w-4 h-4" />
+                {activeRecordId ? '更新归档' : '保存归档'}
+              </button>
+              </div>
             </div>
 
             <div className="bg-warn-50 border border-warn-200 rounded-xl p-4 flex gap-3">
@@ -234,6 +275,51 @@ export default function PreviewPage() {
               </div>
             )}
 
+            {hasEvidences && (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                  <FileCheck className="w-4 h-4 text-primary-600" />
+                  证据目录台账
+                </h3>
+                <div className="overflow-x-auto -mx-2">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-slate-200">
+                      <th className="text-left py-2 px-2 font-medium">序号</th>
+                      <th className="text-left py-2 px-2 font-medium">证据名称</th>
+                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><CalendarDays className="w-3 h-3 inline mr-1" />取得</th>
+                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><User className="w-3 h-3 inline mr-1" />保管</th>
+                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><Hash className="w-3 h-3 inline mr-1" />编号</th>
+                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><MessageSquare className="w-3 h-3 inline mr-1" />备注</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evidences.map((e, i) => (
+                    <tr key={e.name} className="border-b border-slate-100 last:border-0">
+                      <td className="py-2 px-2 text-slate-500 align-top">{i + 1}</td>
+                      <td className="py-2 px-2 text-slate-800 align-top">{e.name}</td>
+                      <td className="py-2 px-2 text-slate-700 align-top whitespace-nowrap">{fmtDate(e.obtainedDate)}</td>
+                      <td className="py-2 px-2 text-slate-700 align-top">{fmtDate(e.custodian)}</td>
+                      <td className="py-2 px-2 text-slate-700 align-top">{fmtDate(e.fileNo)}</td>
+                      <td className="py-2 px-2 text-slate-600 align-top">{fmtDate(e.remark)}</td>
+                    </tr>
+                  ))}
+                    {formData.customEvidence.trim() && (
+                      <tr className="border-b border-slate-100 last:border-0">
+                        <td className="py-2 px-2 text-slate-500 align-top">{evidences.length + 1}</td>
+                        <td className="py-2 px-2 text-slate-800 align-top">{formData.customEvidence.trim()}</td>
+                        <td className="py-2 px-2 text-slate-700 align-top">—</td>
+                        <td className="py-2 px-2 text-slate-700 align-top">—</td>
+                        <td className="py-2 px-2 text-slate-700 align-top">—</td>
+                        <td className="py-2 px-2 text-slate-600 align-top">补充</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
               <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-primary-600" />
@@ -243,6 +329,10 @@ export default function PreviewPage() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500 flex-shrink-0">项目名称</dt>
                   <dd className="text-slate-800 font-medium text-right">{formData.projectName || '—'}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500 flex-shrink-0">索赔类型</dt>
+                  <dd className="text-slate-800 font-medium text-right">{claimConfig?.title || '—'}</dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500 flex-shrink-0">合同条款</dt>
@@ -262,27 +352,21 @@ export default function PreviewPage() {
                   <div className="pt-2 border-t border-slate-100">
                     <dt className="text-slate-500 mb-2">费用明细</dt>
                     <dd className="space-y-1.5">
-                      {cb.personnelCost && cb.personnelCost > 0 && (
-                        <div className="flex justify-between text-xs"><span className="text-slate-600">人员窝工费</span><span className="text-slate-800">¥ {cb.personnelCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
-                      )}
-                      {cb.equipmentCost && cb.equipmentCost > 0 && (
-                        <div className="flex justify-between text-xs"><span className="text-slate-600">机械闲置费</span><span className="text-slate-800">¥ {cb.equipmentCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
-                      )}
-                      {cb.managementCost && cb.managementCost > 0 && (
-                        <div className="flex justify-between text-xs"><span className="text-slate-600">现场管理费</span><span className="text-slate-800">¥ {cb.managementCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
-                      )}
-                      {cb.materialCost && cb.materialCost > 0 && (
-                        <div className="flex justify-between text-xs"><span className="text-slate-600">材料保管费</span><span className="text-slate-800">¥ {cb.materialCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
-                      )}
-                      {cb.otherCost && cb.otherCost > 0 && (
-                        <div className="flex justify-between text-xs"><span className="text-slate-600">{cb.otherCostDesc || '其他费用'}</span><span className="text-slate-800">¥ {cb.otherCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
-                      )}
+                      {costItems.map((it) => (
+                        <div key={it.id} className="flex justify-between text-xs"><span className="text-slate-600">{it.name.trim()}</span><span className="text-slate-800">¥ {(it.amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                      ))}
+                      <div className="flex justify-between text-xs pt-1 mt-1 border-t border-slate-100 font-medium">
+                        <span className="text-slate-700">合计</span>
+                        <span className="text-primary-700">¥ {totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                      </div>
                     </dd>
                   </div>
                 )}
                 <div className="flex justify-between gap-4">
-                  <dt className="text-slate-500 flex-shrink-0">已提交证据</dt>
-                  <dd className="text-slate-800 font-medium text-right">{formData.evidences.length} 项</dd>
+                  <dt className="text-slate-500 flex-shrink-0">已收集证据</dt>
+                  <dd className="text-slate-800 font-medium text-right">
+                    {evidences.length + (formData.customEvidence.trim() ? 1 : 0)} 项
+                  </dd>
                 </div>
               </dl>
             </div>
