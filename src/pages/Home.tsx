@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -16,10 +16,13 @@ import {
   FileCheck,
   X,
   AlertTriangle,
+  Download,
+  Upload,
+  Info,
 } from 'lucide-react';
 import { CLAIM_TYPES, getClaimTypeConfig } from '@/data/claimTypes';
 import { useClaimStore } from '@/store/useClaimStore';
-import type { ClaimType, ProjectRecord } from '@/types';
+import type { ClaimType, ProjectRecord, ProjectExportBundle } from '@/types';
 
 const iconMap = {
   Building2,
@@ -47,6 +50,10 @@ export default function Home() {
   const clearActiveRecord = useClaimStore((s) => s.clearActiveRecord);
 
   const [confirmDel, setConfirmDel] = useState<ProjectRecord | null>(null);
+  const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const exportProjects = useClaimStore((s) => s.exportProjects);
+  const importProjects = useClaimStore((s) => s.importProjects);
 
   const handleSelect = (type: ClaimType) => {
     reset();
@@ -68,6 +75,51 @@ export default function Home() {
       deleteProjectRecord(confirmDel.id);
     }
     setConfirmDel(null);
+  };
+
+  const handleExport = () => {
+    const bundle = exportProjects();
+    if (bundle.records.length === 0) {
+      setImportMsg({ type: 'error', text: '暂无项目可导出' });
+      setTimeout(() => setImportMsg(null), 2500);
+      return;
+    }
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    a.download = `停窝工索赔项目归档_${dateStr}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as ProjectExportBundle;
+      if (!data || !Array.isArray(data.records)) {
+        throw new Error('文件格式不正确');
+      }
+      const { added, total } = importProjects(data);
+      if (added > 0) {
+        setImportMsg({ type: 'success', text: `导入成功，新增 ${added} 个项目（共 ${total} 个）` });
+      } else {
+        setImportMsg({ type: 'success', text: '未发现新项目（可能已存在相同记录）' });
+      }
+    } catch (err) {
+      setImportMsg({ type: 'error', text: '导入失败，请检查文件格式' });
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setTimeout(() => setImportMsg(null), 3500);
+    }
   };
 
   return (
@@ -139,14 +191,44 @@ export default function Home() {
 
         {projectRecords.length > 0 && (
           <div className="mb-16">
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
               <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-primary-600" />
                 最近项目归档
               </h3>
-              <span className="text-xs text-slate-500">
-                自动保存在浏览器本地，最多 {projectRecords.length} 条
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 mr-2">
+                  自动保存在浏览器本地，共 {projectRecords.length} 条
+                </span>
+                {importMsg && (
+                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${importMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {importMsg.type === 'success' ? '✓' : '⚠'} {importMsg.text}
+                  </span>
+                )}
+                <button
+                  onClick={handleExport}
+                  className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1.5"
+                  title="导出为 JSON 文件"
+                >
+                  <Download className="w-4 h-4" />
+                  导出
+                </button>
+                <button
+                  onClick={handleImportClick}
+                  className="btn-secondary !py-1.5 !px-3 text-sm flex items-center gap-1.5"
+                  title="从 JSON 文件导入"
+                >
+                  <Upload className="w-4 h-4" />
+                  导入
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+              </div>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {projectRecords.map((rec) => {

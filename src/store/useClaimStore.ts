@@ -1,9 +1,21 @@
 import { create } from 'zustand';
-import type { ClaimFormData, ClaimType, CostItem, EvidenceDetail, GeneratedResult, LetterType, ProjectRecord, ToneLevel } from '@/types';
+import type {
+  ClaimFormData,
+  ClaimType,
+  CostItem,
+  CostCalcMode,
+  EvidenceDetail,
+  EvidenceStatus,
+  GeneratedResult,
+  LetterType,
+  ProjectRecord,
+  ProjectExportBundle,
+  ToneLevel,
+} from '@/types';
 import { generateLetter, detectMissingGroups } from '@/utils/generator';
 import { CLAIM_TYPES } from '@/data/claimTypes';
 
-const STORAGE_KEY = 'claim_project_records_v1';
+const STORAGE_KEY = 'claim_project_records_v2';
 
 function getToday(): string {
   const d = new Date();
@@ -14,12 +26,79 @@ function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+function numOrNull(v: number | null | undefined): number | null {
+  if (v == null || isNaN(v)) return null;
+  return v;
+}
+
+function calcCostItemAmount(item: CostItem): number | null {
+  const qty = numOrNull(item.quantity);
+  const price = numOrNull(item.unitPrice);
+  const days = numOrNull(item.days);
+
+  switch (item.calcMode) {
+    case 'amount':
+      return numOrNull(item.amount);
+    case 'qty_price':
+      if (qty == null || price == null) return numOrNull(item.amount) ?? null;
+      return Math.round(qty * price * 100) / 100;
+    case 'qty_price_days':
+      if (qty == null || price == null || days == null) return numOrNull(item.amount) ?? null;
+      return Math.round(qty * price * days * 100) / 100;
+    case 'rate_days':
+      if (price == null || days == null) return numOrNull(item.amount) ?? null;
+      return Math.round(price * days * 100) / 100;
+    default:
+      return numOrNull(item.amount);
+  }
+}
+
 const DEFAULT_COST_ITEMS = (): CostItem[] => [
-  { id: uid(), name: '人员窝工费', amount: null },
-  { id: uid(), name: '机械闲置费', amount: null },
-  { id: uid(), name: '现场管理费', amount: null },
-  { id: uid(), name: '材料保管费', amount: null },
+  {
+    id: uid(),
+    name: '人员窝工费',
+    calcMode: 'qty_price_days',
+    amount: null,
+    quantity: null,
+    unitPrice: null,
+    days: null,
+    unitLabel: '人',
+  },
+  {
+    id: uid(),
+    name: '机械闲置费',
+    calcMode: 'qty_price_days',
+    amount: null,
+    quantity: null,
+    unitPrice: null,
+    days: null,
+    unitLabel: '台',
+  },
+  {
+    id: uid(),
+    name: '现场管理费',
+    calcMode: 'amount',
+    amount: null,
+    quantity: null,
+    unitPrice: null,
+    days: null,
+    unitLabel: '',
+  },
+  {
+    id: uid(),
+    name: '材料保管费',
+    calcMode: 'amount',
+    amount: null,
+    quantity: null,
+    unitPrice: null,
+    days: null,
+    unitLabel: '',
+  },
 ];
+
+function defaultEvidence(name: string, status: EvidenceStatus = 'pending'): EvidenceDetail {
+  return { name, status, obtainedDate: '', custodian: '', fileNo: '', remark: '' };
+}
 
 const initialFormData: ClaimFormData = {
   claimType: null,
@@ -40,9 +119,14 @@ const initialFormData: ClaimFormData = {
 
 function sumCostItems(items: CostItem[]): number {
   return items.reduce((acc, it) => {
-    if (it.amount != null && !isNaN(it.amount) && it.amount > 0) return acc + it.amount;
+    const v = calcCostItemAmount(it);
+    if (v != null && !isNaN(v) && v > 0) return acc + v;
     return acc;
   }, 0);
+}
+
+function recalcAmounts(items: CostItem[]): CostItem[] {
+  return items.map((it) => ({ ...it, amount: calcCostItemAmount(it) }));
 }
 
 function loadRecords(): ProjectRecord[] {
@@ -73,7 +157,7 @@ interface ClaimStore {
   setClaimType: (type: ClaimType) => void;
   setFormData: (data: Partial<ClaimFormData>) => void;
 
-  addCostItem: (name?: string) => void;
+  addCostItem: (name?: string, mode?: CostCalcMode, unitLabel?: string) => void;
   updateCostItem: (id: string, patch: Partial<CostItem>) => void;
   removeCostItem: (id: string) => void;
   recalcTotalCost: () => void;
@@ -89,6 +173,9 @@ interface ClaimStore {
   loadProjectRecord: (id: string) => void;
   deleteProjectRecord: (id: string) => void;
   clearActiveRecord: () => void;
+
+  exportProjects: () => ProjectExportBundle;
+  importProjects: (bundle: ProjectExportBundle) => { added: number; total: number };
 
   reset: () => void;
 }
@@ -111,9 +198,26 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
     }));
   },
 
-  addCostItem: (name?: string) => {
+  addCostItem: (name?: string, mode?: CostCalcMode, unitLabel?: string) => {
     set((state) => {
-      const item: CostItem = { id: uid(), name: name || '新费用项', amount: null };
+      const calcMode = mode || 'amount';
+      const ul =
+        unitLabel != null
+          ? unitLabel
+          : calcMode === 'qty_price' || calcMode === 'qty_price_days'
+            ? '项'
+            : '';
+      const item: CostItem = {
+        id: uid(),
+        name: name || '新费用项',
+        calcMode,
+        amount: null,
+        quantity: null,
+        unitPrice: null,
+        days: null,
+        unitLabel: ul,
+      };
+      item.amount = calcCostItemAmount(item);
       const items = [...state.formData.costItems, item];
       return {
         formData: {
@@ -127,7 +231,12 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
 
   updateCostItem: (id: string, patch: Partial<CostItem>) => {
     set((state) => {
-      const items = state.formData.costItems.map((it) => (it.id === id ? { ...it, ...patch } : it));
+      const items = state.formData.costItems.map((it) => {
+        if (it.id !== id) return it;
+        const merged = { ...it, ...patch };
+        merged.amount = calcCostItemAmount(merged);
+        return merged;
+      });
       return {
         formData: {
           ...state.formData,
@@ -141,11 +250,13 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
   removeCostItem: (id: string) => {
     set((state) => {
       const items = state.formData.costItems.filter((it) => it.id !== id);
+      const finalItems = items.length === 0 ? DEFAULT_COST_ITEMS() : items;
+      const recalc = recalcAmounts(finalItems);
       return {
         formData: {
           ...state.formData,
-          costItems: items.length === 0 ? DEFAULT_COST_ITEMS() : items,
-          incurredCost: sumCostItems(items.length === 0 ? DEFAULT_COST_ITEMS() : items) || null,
+          costItems: recalc,
+          incurredCost: sumCostItems(recalc) || null,
         },
       };
     });
@@ -153,10 +264,12 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
 
   recalcTotalCost: () => {
     set((state) => {
-      const total = sumCostItems(state.formData.costItems);
+      const items = recalcAmounts(state.formData.costItems);
+      const total = sumCostItems(items);
       return {
         formData: {
           ...state.formData,
+          costItems: items,
           incurredCost: total > 0 ? total : null,
         },
       };
@@ -170,10 +283,7 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
       if (existsIdx >= 0) {
         next = state.formData.evidences.filter((e) => e.name !== evidenceName);
       } else {
-        next = [
-          ...state.formData.evidences,
-          { name: evidenceName, obtainedDate: '', custodian: '', fileNo: '', remark: '' },
-        ];
+        next = [...state.formData.evidences, defaultEvidence(evidenceName, 'original')];
       }
       return { formData: { ...state.formData, evidences: next } };
     });
@@ -276,7 +386,7 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
         formData,
         result,
       };
-      const updated = [newRec, ...projectRecords].slice(0, 20);
+      const updated = [newRec, ...projectRecords].slice(0, 50);
       saveRecords(updated);
       set({ projectRecords: updated, activeRecordId: newRec.id });
       return newRec.id;
@@ -306,6 +416,37 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
 
   clearActiveRecord: () => {
     set({ activeRecordId: null });
+  },
+
+  exportProjects: (): ProjectExportBundle => {
+    const { projectRecords } = get();
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      records: JSON.parse(JSON.stringify(projectRecords)),
+    };
+  },
+
+  importProjects: (bundle: ProjectExportBundle): { added: number; total: number } => {
+    if (!bundle || !Array.isArray(bundle.records)) {
+      return { added: 0, total: 0 };
+    }
+    const existing = get().projectRecords;
+    const existingIds = new Set(existing.map((r) => r.id));
+    let added = 0;
+    const merged: ProjectRecord[] = [...existing];
+    for (const rec of bundle.records) {
+      if (!rec || !rec.id || !rec.formData || !rec.claimType) continue;
+      if (existingIds.has(rec.id)) continue;
+      merged.push(rec);
+      existingIds.add(rec.id);
+      added++;
+    }
+    merged.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const finalList = merged.slice(0, 100);
+    saveRecords(finalList);
+    set({ projectRecords: finalList });
+    return { added, total: finalList.length };
   },
 
   reset: () => {

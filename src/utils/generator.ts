@@ -1,4 +1,5 @@
 import type { ClaimFormData, LetterType, MissingGroup } from '@/types';
+import { EVIDENCE_STATUS_LABELS } from '@/types';
 import { getClaimTypeConfig } from '@/data/claimTypes';
 import { getTemplate, getLetterTitle, pickToneText } from '@/data/letterTemplates';
 
@@ -8,15 +9,24 @@ function numToChinese(num: number): string {
 
   const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
   const units = ['', '拾', '佰', '仟'];
-  const bigUnits = ['', '万', '亿'];
+  const bigUnits = ['', '万', '亿', '万亿'];
 
   const sign = num < 0 ? '负' : '';
   const abs = Math.abs(num);
   const intPart = Math.floor(abs);
   const decPart = Math.round((abs - intPart) * 100);
 
-  let intStr = '';
+  if (intPart === 0 && decPart > 0) {
+    const jiao = Math.floor(decPart / 10);
+    const fen = decPart % 10;
+    let decStr = '';
+    if (jiao > 0) decStr += digits[jiao] + '角';
+    if (fen > 0) decStr += digits[fen] + '分';
+    return sign + decStr;
+  }
+
   const intStrArr = intPart.toString().split('').reverse();
+  let intStr = '';
 
   for (let i = 0; i < intStrArr.length; i++) {
     const d = parseInt(intStrArr[i]);
@@ -35,8 +45,9 @@ function numToChinese(num: number): string {
       if (intStr.startsWith('零')) {
         intStr = intStr.slice(1);
       }
-      if (!intStr.startsWith(bigUnits[bigUnitIdx]) && intStr !== '') {
-        intStr = bigUnits[bigUnitIdx] + intStr;
+      const bigUnit = bigUnits[bigUnitIdx] || '';
+      if (bigUnit && !intStr.startsWith(bigUnit) && intStr !== '') {
+        intStr = bigUnit + intStr;
       }
     }
   }
@@ -80,27 +91,27 @@ function formatDate(dateStr: string): string {
 }
 
 function normalizeSingleClause(raw: string): string {
-  const s = raw.trim().replace(/\s+/g, '');
+  let s = (raw || '').trim().replace(/\s+/g, '');
   if (!s) return '';
-  let out = s;
-  out = out.replace(/^第+/, '第');
-  out = out.replace(/条+$/, '条');
-  if (!out.startsWith('第')) out = '第' + out;
-  if (!out.endsWith('条')) out = out + '条';
-  return out;
+  s = s.replace(/^第+/g, '');
+  s = s.replace(/条+$/g, '');
+  if (!s) return '';
+  return `第${s}条`;
 }
 
 function formatContractClause(input: string): string {
   const raw = (input || '').trim();
   if (!raw) return '[合同条款编号]';
-  const parts = raw.split(/[、,，;；\/\\]/).map((s) => s.trim()).filter(Boolean);
+  const parts = raw.split(/[、,，;；\/\\\s]+/).map((s) => s.trim()).filter(Boolean);
   const normalized = parts.map(normalizeSingleClause).filter(Boolean);
   const dedup = Array.from(new Set(normalized));
   return dedup.length ? dedup.join('、') : '[合同条款编号]';
 }
 
 function buildEvidenceList(formData: ClaimFormData): string {
-  const names: string[] = formData.evidences.map((e) => e.name);
+  const names: string[] = formData.evidences
+    .filter((e) => e.name.trim())
+    .map((e) => e.name.trim());
   if (formData.customEvidence.trim()) {
     names.push(formData.customEvidence.trim());
   }
@@ -112,8 +123,8 @@ function buildEvidenceCatalogue(formData: ClaimFormData): string {
   const rows = formData.evidences
     .filter((e) => e.name.trim())
     .map((e) => ({
-      no: 0,
       name: e.name,
+      status: EVIDENCE_STATUS_LABELS[e.status] || '—',
       date: e.obtainedDate || '—',
       custodian: e.custodian || '—',
       fileNo: e.fileNo || '—',
@@ -121,26 +132,27 @@ function buildEvidenceCatalogue(formData: ClaimFormData): string {
     }));
   if (formData.customEvidence.trim()) {
     rows.push({
-      no: 0,
       name: formData.customEvidence.trim(),
+      status: '补充证据',
       date: '—',
       custodian: '—',
       fileNo: '—',
-      remark: '补充证据',
+      remark: '—',
     });
   }
   if (rows.length === 0) return '';
 
-  const header = `    序号  证据名称                  取得时间      保管人      文件编号      备注`;
-  const sep = `    ${'—'.repeat(90)}`;
+  const header = `    序号  状态        证据名称            取得时间      保管人    文件编号        备注`;
+  const sep = `    ${'—'.repeat(110)}`;
   const lines = rows.map((r, i) => {
     const no = String(i + 1).padEnd(4);
-    const name = (r.name.length > 22 ? r.name.slice(0, 21) + '…' : r.name).padEnd(24);
+    const status = (r.status.length > 8 ? r.status.slice(0, 7) + '…' : r.status).padEnd(10);
+    const name = (r.name.length > 18 ? r.name.slice(0, 17) + '…' : r.name).padEnd(18);
     const date = r.date.padEnd(12);
-    const custodian = (r.custodian.length > 8 ? r.custodian.slice(0, 7) + '…' : r.custodian).padEnd(10);
-    const fileNo = (r.fileNo.length > 10 ? r.fileNo.slice(0, 9) + '…' : r.fileNo).padEnd(12);
-    const remark = r.remark.length > 14 ? r.remark.slice(0, 13) + '…' : r.remark;
-    return `    ${no}${name}${date}${custodian}${fileNo}${remark}`;
+    const custodian = (r.custodian.length > 6 ? r.custodian.slice(0, 5) + '…' : r.custodian).padEnd(8);
+    const fileNo = (r.fileNo.length > 12 ? r.fileNo.slice(0, 11) + '…' : r.fileNo).padEnd(14);
+    const remark = r.remark.length > 16 ? r.remark.slice(0, 15) + '…' : r.remark;
+    return `    ${no}${status}${name}${date}${custodian}${fileNo}${remark}`;
   });
 
   return '\n证据目录：\n\n' + header + '\n' + sep + '\n' + lines.join('\n');
@@ -152,7 +164,19 @@ function buildCostDetailText(formData: ClaimFormData): string {
   );
   if (items.length === 0) return '';
 
-  const lines = items.map((it) => `    ${it.name.trim()}：${formatNumber(it.amount!)}元`);
+  const lines = items.map((it) => {
+    let desc = '';
+    if (it.calcMode === 'qty_price' && it.quantity != null && it.unitPrice != null) {
+      const unit = it.unitLabel || '项';
+      desc = `（${it.quantity}${unit} × ${formatNumber(it.unitPrice)}元/${unit}）`;
+    } else if (it.calcMode === 'qty_price_days' && it.quantity != null && it.unitPrice != null && it.days != null) {
+      const unit = it.unitLabel || '项';
+      desc = `（${it.quantity}${unit} × ${formatNumber(it.unitPrice)}元/${unit}·天 × ${it.days}天）`;
+    } else if (it.calcMode === 'rate_days' && it.unitPrice != null && it.days != null) {
+      desc = `（${formatNumber(it.unitPrice)}元/天 × ${it.days}天）`;
+    }
+    return `    ${it.name.trim()}${desc ? ' ' + desc : ''}：${formatNumber(it.amount!)}元`;
+  });
   const total = items.reduce((acc, it) => acc + (it.amount || 0), 0);
 
   return (
@@ -253,12 +277,12 @@ export function detectMissingGroups(formData: ClaimFormData): MissingGroup[] {
   if (formData.confirmedDays === null || formData.confirmedDays <= 0) {
     factItems.push({ text: '已确认停窝工天数未填写（天数为索赔金额计算的重要依据）', targetSection: 'claim-facts' });
   }
-  const hasCost =
-    formData.incurredCost != null && formData.incurredCost > 0 && isFinite(formData.incurredCost);
+
   const hasAnyCostItem = formData.costItems.some(
     (it) => it.amount != null && !isNaN(it.amount) && it.amount > 0
   );
-  if (!hasCost && !hasAnyCostItem) {
+  const hasTotalCost = formData.incurredCost != null && formData.incurredCost > 0 && isFinite(formData.incurredCost);
+  if (!hasAnyCostItem && !hasTotalCost) {
     factItems.push({ text: '已发生费用金额未填写（建议填写费用明细或总金额）', targetSection: 'cost-detail' });
   }
 

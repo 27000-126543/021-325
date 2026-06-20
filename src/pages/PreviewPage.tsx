@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -18,10 +18,20 @@ import {
   Hash,
   MessageSquare,
   Save,
+  CircleDot,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useClaimStore } from '@/store/useClaimStore';
 import { LETTER_TYPES, getClaimTypeConfig } from '@/data/claimTypes';
-import type { LetterType, MissingGroup } from '@/types';
+import {
+  EVIDENCE_STATUS_LABELS,
+  EVIDENCE_STATUS_COLORS,
+  type LetterType,
+  type MissingGroup,
+  type EvidenceStatus,
+  type EvidenceDetail,
+} from '@/types';
 
 const groupIcons = {
   fact: ClipboardList,
@@ -34,6 +44,8 @@ const groupColors = {
   contract: { bg: 'bg-blue-50', border: 'border-blue-200', headerBg: 'bg-blue-50', headerBorder: 'border-blue-200', icon: 'text-blue-600', title: 'text-blue-800', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700' },
   evidence: { bg: 'bg-red-50', border: 'border-red-200', headerBg: 'bg-red-50', headerBorder: 'border-red-200', icon: 'text-red-600', title: 'text-red-800', text: 'text-red-800', badge: 'bg-red-100 text-red-700' },
 };
+
+const STATUS_ORDER: EvidenceStatus[] = ['original', 'copy', 'pending_seal', 'pending_supervisor', 'pending'];
 
 function fmtDate(s: string): string {
   return s || '—';
@@ -48,6 +60,13 @@ export default function PreviewPage() {
   const saveProjectToRecords = useClaimStore((s) => s.saveProjectToRecords);
   const [copied, setCopied] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  const [statusCollapsed, setStatusCollapsed] = useState<Record<EvidenceStatus, boolean>>({
+    original: false,
+    copy: false,
+    pending_seal: false,
+    pending_supervisor: false,
+    pending: false,
+  });
 
   useEffect(() => {
     if (!formData.claimType) {
@@ -97,6 +116,42 @@ export default function PreviewPage() {
 
   const totalMissing = result?.missingGroups.reduce((sum, g) => sum + g.items.length, 0) ?? 0;
 
+  const evidences = formData.evidences.filter((e) => e.name.trim());
+  const hasEvidences = evidences.length > 0 || formData.customEvidence.trim();
+
+  const groupedEvidences = useMemo(() => {
+    const map: Record<EvidenceStatus, EvidenceDetail[]> = {
+      original: [],
+      copy: [],
+      pending_seal: [],
+      pending_supervisor: [],
+      pending: [],
+    };
+    for (const e of evidences) {
+      const st = e.status || 'original';
+      if (map[st]) {
+        map[st].push(e);
+      } else {
+        map.original.push(e);
+      }
+    }
+    return map;
+  }, [evidences]);
+
+  const readyCount = groupedEvidences.original.length;
+  const pendingCount =
+    groupedEvidences.copy.length +
+    groupedEvidences.pending_seal.length +
+    groupedEvidences.pending_supervisor.length;
+
+  const costItems = formData.costItems.filter(
+    (it) => it.name.trim() && it.amount != null && !isNaN(it.amount) && it.amount > 0
+  );
+  const hasCostBreakdown = costItems.length > 0;
+  const totalCost = costItems.reduce((acc, it) => acc + (it.amount || 0), 0);
+
+  const claimConfig = formData.claimType ? getClaimTypeConfig(formData.claimType) : null;
+
   const renderMissingGroups = (groups: MissingGroup[]) => {
     if (groups.length === 0) return null;
     return (
@@ -140,17 +195,6 @@ export default function PreviewPage() {
   };
 
   if (!result) return null;
-
-  const costItems = formData.costItems.filter(
-    (it) => it.name.trim() && it.amount != null && !isNaN(it.amount) && it.amount > 0
-  );
-  const hasCostBreakdown = costItems.length > 0;
-  const totalCost = costItems.reduce((acc, it) => acc + (it.amount || 0), 0);
-
-  const claimConfig = formData.claimType ? getClaimTypeConfig(formData.claimType) : null;
-
-  const evidences = formData.evidences.filter((e) => e.name.trim());
-  const hasEvidences = evidences.length > 0 || formData.customEvidence.trim();
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -203,12 +247,14 @@ export default function PreviewPage() {
               </div>
               <div className="flex items-center gap-2">
                 {saveMsg && (
-                  <span className={`text-sm font-medium ${saveMsg.startsWith('✓') ? 'text-green-600' : 'text-warn-600'}`}>{saveMsg}</span>
+                  <span className={`text-sm font-medium ${saveMsg.startsWith('✓') ? 'text-green-600' : 'text-warn-600'}`}>
+                    {saveMsg}
+                  </span>
                 )}
                 <button onClick={handleSave} className="btn-secondary !py-2 !px-3 text-sm flex items-center gap-1.5">
-                <Save className="w-4 h-4" />
-                {activeRecordId ? '更新归档' : '保存归档'}
-              </button>
+                  <Save className="w-4 h-4" />
+                  {activeRecordId ? '更新归档' : '保存归档'}
+                </button>
               </div>
             </div>
 
@@ -277,46 +323,113 @@ export default function PreviewPage() {
 
             {hasEvidences && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                  <FileCheck className="w-4 h-4 text-primary-600" />
-                  证据目录台账
-                </h3>
-                <div className="overflow-x-auto -mx-2">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-slate-500 border-b border-slate-200">
-                      <th className="text-left py-2 px-2 font-medium">序号</th>
-                      <th className="text-left py-2 px-2 font-medium">证据名称</th>
-                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><CalendarDays className="w-3 h-3 inline mr-1" />取得</th>
-                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><User className="w-3 h-3 inline mr-1" />保管</th>
-                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><Hash className="w-3 h-3 inline mr-1" />编号</th>
-                      <th className="text-left py-2 px-2 font-medium whitespace-nowrap"><MessageSquare className="w-3 h-3 inline mr-1" />备注</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {evidences.map((e, i) => (
-                    <tr key={e.name} className="border-b border-slate-100 last:border-0">
-                      <td className="py-2 px-2 text-slate-500 align-top">{i + 1}</td>
-                      <td className="py-2 px-2 text-slate-800 align-top">{e.name}</td>
-                      <td className="py-2 px-2 text-slate-700 align-top whitespace-nowrap">{fmtDate(e.obtainedDate)}</td>
-                      <td className="py-2 px-2 text-slate-700 align-top">{fmtDate(e.custodian)}</td>
-                      <td className="py-2 px-2 text-slate-700 align-top">{fmtDate(e.fileNo)}</td>
-                      <td className="py-2 px-2 text-slate-600 align-top">{fmtDate(e.remark)}</td>
-                    </tr>
-                  ))}
-                    {formData.customEvidence.trim() && (
-                      <tr className="border-b border-slate-100 last:border-0">
-                        <td className="py-2 px-2 text-slate-500 align-top">{evidences.length + 1}</td>
-                        <td className="py-2 px-2 text-slate-800 align-top">{formData.customEvidence.trim()}</td>
-                        <td className="py-2 px-2 text-slate-700 align-top">—</td>
-                        <td className="py-2 px-2 text-slate-700 align-top">—</td>
-                        <td className="py-2 px-2 text-slate-700 align-top">—</td>
-                        <td className="py-2 px-2 text-slate-600 align-top">补充</td>
-                      </tr>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <FileCheck className="w-4 h-4 text-primary-600" />
+                    证据目录台账
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                      <CircleDot className="w-3 h-3" />
+                      已齐 {readyCount}
+                    </span>
+                    {pendingCount > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warn-50 text-warn-700 font-medium">
+                        待完善 {pendingCount}
+                      </span>
                     )}
-                  </tbody>
-                </table>
+                  </div>
                 </div>
+
+                <div className="space-y-2.5">
+                  {STATUS_ORDER.map((status) => {
+                    const list = groupedEvidences[status];
+                    if (list.length === 0) return null;
+                    const colors = EVIDENCE_STATUS_COLORS[status];
+                    const collapsed = statusCollapsed[status];
+                    return (
+                      <div
+                        key={status}
+                        className={`rounded-lg border ${colors.bg} ${colors.text} overflow-hidden`}
+                      >
+                        <button
+                          onClick={() => setStatusCollapsed((prev) => ({ ...prev, [status]: !prev[status] }))}
+                          className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/50 transition"
+                        >
+                          <div className="flex items-center gap-2">
+                            <CircleDot className={`w-3.5 h-3.5 ${colors.dot}`} />
+                            <span className="text-xs font-semibold">
+                              {EVIDENCE_STATUS_LABELS[status]}
+                            </span>
+                            <span className="text-xs opacity-75">{list.length} 项</span>
+                          </div>
+                          {collapsed ? (
+                            <ChevronDown className="w-4 h-4 opacity-60" />
+                          ) : (
+                            <ChevronUp className="w-4 h-4 opacity-60" />
+                          )}
+                        </button>
+                        {!collapsed && (
+                          <div className="border-t border-white/60 px-2 py-2 space-y-1">
+                            {list.map((e) => (
+                              <div
+                                key={e.name}
+                                className="bg-white/80 rounded-md p-2 text-xs"
+                              >
+                                <div className="font-medium text-slate-800 mb-1.5">{e.name}</div>
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-600">
+                                  <div className="flex items-center gap-1">
+                                    <CalendarDays className="w-3 h-3 text-slate-400" />
+                                    <span>{fmtDate(e.obtainedDate)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <User className="w-3 h-3 text-slate-400" />
+                                    <span>{fmtDate(e.custodian)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Hash className="w-3 h-3 text-slate-400" />
+                                    <span className="truncate">{fmtDate(e.fileNo)}</span>
+                                  </div>
+                                  {e.remark && (
+                                    <div className="col-span-2 flex items-start gap-1">
+                                      <MessageSquare className="w-3 h-3 text-slate-400 mt-0.5 flex-shrink-0" />
+                                      <span className="text-slate-500 line-clamp-2">{e.remark}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {formData.customEvidence.trim() && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
+                      <div className="px-3 py-2 flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-700 flex items-center gap-2">
+                          <CircleDot className="w-3.5 h-3.5 text-slate-400" />
+                          补充证据
+                        </span>
+                        <span className="text-xs text-slate-500">1 项</span>
+                      </div>
+                      <div className="border-t border-slate-200 px-2 py-2">
+                        <div className="bg-white rounded-md p-2 text-xs text-slate-700">
+                          {formData.customEvidence.trim()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => handleMissingClick('evidence')}
+                  className="w-full mt-4 btn-ghost !py-2 text-sm flex items-center justify-center gap-1 text-primary-700 hover:text-primary-800"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  去填写页补充证据
+                </button>
               </div>
             )}
 
@@ -345,7 +458,9 @@ export default function PreviewPage() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500 flex-shrink-0">索赔总费用</dt>
                   <dd className="text-slate-800 font-medium text-right">
-                    {formData.incurredCost ? `¥ ${formData.incurredCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                    {totalCost > 0
+                      ? `¥ ${totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
                   </dd>
                 </div>
                 {hasCostBreakdown && (
@@ -353,11 +468,18 @@ export default function PreviewPage() {
                     <dt className="text-slate-500 mb-2">费用明细</dt>
                     <dd className="space-y-1.5">
                       {costItems.map((it) => (
-                        <div key={it.id} className="flex justify-between text-xs"><span className="text-slate-600">{it.name.trim()}</span><span className="text-slate-800">¥ {(it.amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span></div>
+                        <div key={it.id} className="flex justify-between text-xs">
+                          <span className="text-slate-600">{it.name.trim()}</span>
+                          <span className="text-slate-800 font-medium">
+                            ¥ {(it.amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       ))}
                       <div className="flex justify-between text-xs pt-1 mt-1 border-t border-slate-100 font-medium">
                         <span className="text-slate-700">合计</span>
-                        <span className="text-primary-700">¥ {totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</span>
+                        <span className="text-primary-700">
+                          ¥ {totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </span>
                       </div>
                     </dd>
                   </div>
