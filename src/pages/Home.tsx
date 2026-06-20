@@ -189,37 +189,40 @@ export default function Home() {
           </p>
         </div>
 
-        {projectRecords.length > 0 && (
-          <div className="mb-16">
+        <div className="mb-16">
             <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
               <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-primary-600" />
                 最近项目归档
               </h3>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 mr-2">
-                  自动保存在浏览器本地，共 {projectRecords.length} 条
-                </span>
+                {projectRecords.length > 0 && (
+                  <span className="text-xs text-slate-500 mr-2">
+                    自动保存在浏览器本地，共 {projectRecords.length} 条
+                  </span>
+                )}
                 {importMsg && (
                   <span className={`text-xs font-medium px-2 py-1 rounded-full ${importMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                     {importMsg.type === 'success' ? '✓' : '⚠'} {importMsg.text}
                   </span>
                 )}
-                <button
-                  onClick={handleExport}
-                  className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1.5"
-                  title="导出为 JSON 文件"
-                >
-                  <Download className="w-4 h-4" />
-                  导出
-                </button>
+                {projectRecords.length > 0 && (
+                  <button
+                    onClick={handleExport}
+                    className="btn-ghost !py-1.5 !px-3 text-sm flex items-center gap-1.5"
+                    title="导出为 JSON 文件"
+                  >
+                    <Download className="w-4 h-4" />
+                    导出
+                  </button>
+                )}
                 <button
                   onClick={handleImportClick}
                   className="btn-secondary !py-1.5 !px-3 text-sm flex items-center gap-1.5"
                   title="从 JSON 文件导入"
                 >
                   <Upload className="w-4 h-4" />
-                  导入
+                  导入归档
                 </button>
                 <input
                   ref={fileInputRef}
@@ -230,79 +233,98 @@ export default function Home() {
                 />
               </div>
             </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projectRecords.map((rec) => {
-                const cfg = getClaimTypeConfig(rec.claimType);
-                const Icon = cfg ? (iconMap[cfg.icon as keyof typeof iconMap] || FileText) : FileText;
-                return (
-                  <div
-                    key={rec.id}
-                    className="card card-hover flex flex-col"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
-                          <Icon className="w-5 h-5 text-primary-700" />
+
+            {projectRecords.length === 0 ? (
+              <div className="bg-white rounded-xl border-2 border-dashed border-slate-300 p-10 text-center">
+                <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                  <Upload className="w-7 h-7 text-slate-400" />
+                </div>
+                <h4 className="text-lg font-semibold text-slate-700 mb-2">暂无本地项目</h4>
+                <p className="text-sm text-slate-500 mb-5 max-w-md mx-auto">
+                  项目数据保存在浏览器本地。如果您之前导出过归档文件，点击下方按钮导入即可继续编辑；也可以从下方选择索赔类型开始新建。
+                </p>
+                <button
+                  onClick={handleImportClick}
+                  className="btn-primary inline-flex items-center gap-2"
+                >
+                  <Upload className="w-4 h-4" />
+                  导入归档文件
+                </button>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {projectRecords.map((rec) => {
+                  const cfg = getClaimTypeConfig(rec.claimType);
+                  const Icon = cfg ? (iconMap[cfg.icon as keyof typeof iconMap] || FileText) : FileText;
+                  return (
+                    <div
+                      key={rec.id}
+                      className="card card-hover flex flex-col"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
+                            <Icon className="w-5 h-5 text-primary-700" />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-base font-semibold text-slate-900 truncate" title={rec.name}>
+                              {rec.name}
+                            </h4>
+                            <p className="text-xs text-primary-700 font-medium mt-0.5">{cfg?.title || '—'}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <h4 className="text-base font-semibold text-slate-900 truncate" title={rec.name}>
-                            {rec.name}
-                          </h4>
-                          <p className="text-xs text-primary-700 font-medium mt-0.5">{cfg?.title || '—'}</p>
+                        <button
+                          onClick={() => setConfirmDel(rec)}
+                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition flex-shrink-0"
+                          title="删除该项目归档"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="space-y-2 mb-4 text-xs text-slate-600">
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-slate-500">
+                            <Calculator className="w-3 h-3" /> 索赔金额
+                          </span>
+                          <span className="font-semibold text-slate-800">
+                            {rec.totalCost != null
+                              ? `¥ ${rec.totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-slate-500">
+                            <CalendarDays className="w-3 h-3" /> 停窝工天数
+                          </span>
+                          <span className="font-semibold text-slate-800">
+                            {rec.confirmedDays != null ? `${rec.confirmedDays} 天` : '—'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-slate-500">
+                            <FileCheck className="w-3 h-3" /> 已收集证据
+                          </span>
+                          <span className="font-semibold text-slate-800">{rec.evidenceCount} 项</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-2">
+                          <span className="text-slate-500">最近更新</span>
+                          <span className="font-medium text-slate-600">{formatDateTime(rec.updatedAt) || '—'}</span>
                         </div>
                       </div>
                       <button
-                        onClick={() => setConfirmDel(rec)}
-                        className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition flex-shrink-0"
-                        title="删除该项目归档"
+                        onClick={() => handleContinue(rec)}
+                        className="mt-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg border border-primary-600 text-primary-700 font-medium text-sm hover:bg-primary-700 hover:text-white transition-colors"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <FolderOpen className="w-4 h-4" />
+                        继续编辑
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <div className="space-y-2 mb-4 text-xs text-slate-600">
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1 text-slate-500">
-                          <Calculator className="w-3 h-3" /> 索赔金额
-                        </span>
-                        <span className="font-semibold text-slate-800">
-                          {rec.totalCost != null
-                            ? `¥ ${rec.totalCost.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : '—'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1 text-slate-500">
-                          <CalendarDays className="w-3 h-3" /> 停窝工天数
-                        </span>
-                        <span className="font-semibold text-slate-800">
-                          {rec.confirmedDays != null ? `${rec.confirmedDays} 天` : '—'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1 text-slate-500">
-                          <FileCheck className="w-3 h-3" /> 已收集证据
-                        </span>
-                        <span className="font-semibold text-slate-800">{rec.evidenceCount} 项</span>
-                      </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-2">
-                        <span className="text-slate-500">最近更新</span>
-                        <span className="font-medium text-slate-600">{formatDateTime(rec.updatedAt) || '—'}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleContinue(rec)}
-                      className="mt-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg border border-primary-600 text-primary-700 font-medium text-sm hover:bg-primary-700 hover:text-white transition-colors"
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                      继续编辑
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
 
         <div className="grid md:grid-cols-3 gap-6 mb-16">
           {CLAIM_TYPES.map((type, index) => {

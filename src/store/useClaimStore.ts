@@ -435,9 +435,51 @@ export const useClaimStore = create<ClaimStore>((set, get) => ({
     const existingIds = new Set(existing.map((r) => r.id));
     let added = 0;
     const merged: ProjectRecord[] = [...existing];
-    for (const rec of bundle.records) {
-      if (!rec || !rec.id || !rec.formData || !rec.claimType) continue;
-      if (existingIds.has(rec.id)) continue;
+    for (const raw of bundle.records) {
+      if (!raw || !raw.id || !raw.formData || !raw.claimType) continue;
+      if (existingIds.has(raw.id)) continue;
+
+      const rec: ProjectRecord = { ...raw };
+
+      rec.formData = { ...rec.formData };
+
+      if (!Array.isArray(rec.formData.costItems)) {
+        rec.formData.costItems = DEFAULT_COST_ITEMS();
+      } else {
+        rec.formData.costItems = rec.formData.costItems.map((it: any) => ({
+          id: it.id || uid(),
+          name: it.name || '',
+          calcMode: it.calcMode || 'amount',
+          amount: it.amount != null ? it.amount : null,
+          quantity: it.quantity != null ? it.quantity : null,
+          unitPrice: it.unitPrice != null ? it.unitPrice : null,
+          days: it.days != null ? it.days : null,
+          unitLabel: it.unitLabel || '',
+        }));
+      }
+
+      if (!Array.isArray(rec.formData.evidences)) {
+        rec.formData.evidences = [];
+      } else {
+        rec.formData.evidences = rec.formData.evidences.map((e: any) => ({
+          name: e.name || '',
+          status: e.status || 'original',
+          obtainedDate: e.obtainedDate || '',
+          custodian: e.custodian || '',
+          fileNo: e.fileNo || '',
+          remark: e.remark || '',
+        }));
+      }
+
+      const total = sumCostItems(rec.formData.costItems);
+      rec.totalCost = total > 0 ? total : rec.formData.incurredCost ?? null;
+      rec.evidenceCount = rec.formData.evidences.length;
+
+      if (rec.result) {
+        rec.result = { ...rec.result };
+        rec.result.missingGroups = rec.result.missingGroups || [];
+      }
+
       merged.push(rec);
       existingIds.add(rec.id);
       added++;
